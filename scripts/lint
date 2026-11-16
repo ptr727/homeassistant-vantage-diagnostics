@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# This is the verify-only linter.
+# It exits non-zero if anything is wrong.
+# It mirrors the CI workflow so "green locally" matches "green on GitHub".
+# To apply auto-fixes run scripts/fix instead.
+
+set -Eeuo pipefail
+
+usage="Usage: scripts/lint [-h | --help]
+Run ruff, mypy and pyright in verify-only mode, as CI does."
+if (($# > 0)); then
+    if (($# == 1)) && [[ "$1" == -h || "$1" == --help ]]; then
+        echo "$usage"
+        exit 0
+    fi
+    echo "Unexpected arguments: $*" >&2
+    echo "$usage" >&2
+    exit 2
+fi
+
+cd "$(dirname "$0")/.."
+
+# Activate the uv-managed .venv that scripts/setup creates, so the tools resolve.
+# This holds however the script runs, from a terminal or a VS Code task.
+if [[ ! -f .venv/bin/activate ]]; then
+    echo "No .venv found - run scripts/setup first." >&2
+    exit 1
+fi
+# shellcheck source=/dev/null
+source .venv/bin/activate
+
+ruff format . --check
+ruff check .
+# Platinum quality-scale rule "strict-typing" requires a clean strict run, configured by [tool.mypy] in pyproject.toml.
+mypy
+# Pyright is the CLI engine behind VS Code's Pylance extension.
+# Running it here keeps the in-editor and CI experience in sync.
+# Its scope, mode, and enabled rules live in the [tool.pyright] section of pyproject.toml, so one source of truth drives both surfaces.
+pyright

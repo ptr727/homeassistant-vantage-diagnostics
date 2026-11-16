@@ -1,0 +1,36 @@
+name: Build HA test matrix
+description: Read .github/ha-test-versions.json and emit the pytest legs as the hub validate task's test-matrix input.
+
+# The matrix is sourced from .github/ha-test-versions.json so that check-ha-version.yml can bump it via a pull request.
+# `minimum` is hand-maintained and tracks the lowest Home Assistant release this integration supports.
+# `latest-stable` and `latest-beta` are bot-maintained, and the beta slot is null when no pre-release is newer than the stable.
+# Every slot gates merges and publishes equally, so a regression against any one fails the run.
+# Test pull request and publish release both reach the validate task, so the legs are built here once rather than in each caller.
+
+outputs:
+  matrix:
+    description: JSON array of leg objects, each with label, ha-version, and pytest-hacc-version, for the install-test-deps hook.
+    value: ${{ steps.build.outputs.matrix }}
+
+runs:
+  using: composite
+  steps:
+
+    # Each leg runs on the python-versions interpreter the caller names, so no leg carries a python-version of its own.
+    - name: Build matrix legs step
+      id: build
+      shell: bash
+      run: |
+        set -Eeuo pipefail
+        matrix=$(jq -c '
+          def leg($label): { "label": $label, "ha-version": .ha, "pytest-hacc-version": ."pytest-hacc" };
+          [
+            (.minimum         | leg("minimum")),
+            (."latest-stable" | leg("latest-stable"))
+          ]
+          + (if ."latest-beta" then [ ."latest-beta" | leg("latest-beta") ] else [] end)
+          | if all(.[]; (."ha-version" | type == "string" and test("\\S")) and (."pytest-hacc-version" | type == "string" and test("\\S")))
+            then . else error("every ha-test-versions.json slot needs a non-empty ha and pytest-hacc string") end
+        ' .github/ha-test-versions.json)
+        echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+        echo "Matrix: $matrix"

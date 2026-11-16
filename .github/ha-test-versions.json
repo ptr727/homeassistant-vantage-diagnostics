@@ -1,0 +1,12 @@
+{
+  "$comment": "Pinned Home Assistant + pytest-homeassistant-custom-component versions read by the ha-test-matrix action into the hub validate task's test-matrix input. `minimum` is hand-maintained and tracks the lowest Home Assistant release this integration supports. `latest-stable` is bot-maintained by check-ha-version.yml: highest pytest-hacc whose `homeassistant==` pin is a stable release. `latest-beta` is bot-maintained too: highest pytest-hacc whose pin is a pre-release strictly newer than `latest-stable.ha`, or null when no such beta is on PyPI. All three slots gate equally - a regression on any one fails the PR.",
+  "minimum": {
+    "ha": "2026.10.4",
+    "pytest-hacc": "0.13.375"
+  },
+  "latest-stable": {
+    "ha": "2026.10.4",
+    "pytest-hacc": "0.13.375"
+  },
+  "latest-beta": null
+}

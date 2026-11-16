@@ -1,0 +1,29 @@
+name: Merge bot pull request action
+
+# Thin caller: the merge-bot is the hub's reusable merge-bot-task.yml, which every fleet repo reaches rather than carries.
+# The trigger is pull_request_target so the called workflow resolves from the trusted base rather than the PR head, and no job checks out PR code.
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, closed]
+
+# GOVERNANCE.md "Workflow YAML Conventions" Concurrency exception (1).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+# Every write in the called workflow uses the App token, so GITHUB_TOKEN gets no scope.
+permissions: {}
+
+jobs:
+
+  merge-bot:
+    name: Merge bot pull request job
+    uses: ptr727/ProjectTemplate/.github/workflows/merge-bot-task.yml@843951dfa652b8b4f5cc8e8ca0b8c4f004eab7fe # 2.0.1477
+    secrets:
+      CODEGEN_APP_CLIENT_ID: ${{ secrets.CODEGEN_APP_CLIENT_ID }}
+      CODEGEN_APP_PRIVATE_KEY: ${{ secrets.CODEGEN_APP_PRIVATE_KEY }}
+    with:
+      rules: '[{"head-prefix": "ha-version-bump/", "base": "develop"}]'
+      # This repository keeps the repository-wide auto-delete off, so a promotion cannot delete develop.
+      # Bot heads are therefore deleted here explicitly.
+      delete-branch: true

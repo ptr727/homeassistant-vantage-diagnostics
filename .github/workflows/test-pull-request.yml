@@ -1,0 +1,127 @@
+name: Test pull request action
+
+# Thin caller: the gate is the hub's reusable validate-task.yml, and the smoke build is its reusable build-release-task.yml.
+# The pull_request trigger is what makes the ruleset-bound aggregator below post its required check (D1.5).
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# GITHUB_TOKEN gets no scope by default, and each job below grants only what it reads with.
+permissions: {}
+
+jobs:
+
+  # One entry per target this repo builds, listing that target's own paths, so a touched target never falls through unfiltered (D1.1).
+  # The build-release-asset hook builds the target, so .github/actions/** is listed too.
+  changes:
+    name: Detect changed targets job
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      release: ${{ steps.filter.outputs.release }}
+    steps:
+      - name: Checkout code step
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Filter changed paths step
+        id: filter
+        if: github.event_name == 'pull_request'
+        uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+        with:
+          filters: |
+            release:
+              - 'custom_components/**'
+              - 'hacs.json'
+              - 'version.json'
+              - '.github/actions/**'
+
+  # The hub gate takes its pytest legs as an input, so they are read from .github/ha-test-versions.json at run time.
+  read-versions:
+    name: Read HA test matrix job
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - name: Checkout code step
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build HA test matrix step
+        id: matrix
+        uses: ./.github/actions/ha-test-matrix
+
+  # The hub lint job runs the doc lint, ruff, and mypy --strict against latest-stable.
+  # Its unit-test job runs one pytest leg per matrix entry through the install-test-deps hook.
+  # Its validate job runs the validate hook's hassfest, HACS, and pyright.
+  validate:
+    name: Validate sources job
+    needs: [read-versions]
+    uses: ptr727/ProjectTemplate/.github/workflows/validate-task.yml@843951dfa652b8b4f5cc8e8ca0b8c4f004eab7fe # 2.0.1477
+    permissions:
+      contents: read
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+    with:
+      python-directories: |
+        .
+      python-versions: '["3.14"]'
+      test-matrix: ${{ needs.read-versions.outputs.matrix }}
+
+  # Smoke mode builds vantage_diagnostics.zip through the build-release-asset hook and never uploads or publishes it (WORKFLOW.md D1.4).
+  # It runs only when the target's paths changed, or on a dispatch.
+  smoke-build:
+    name: Smoke build job
+    needs: [changes]
+    if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.release == 'true'
+    uses: ptr727/ProjectTemplate/.github/workflows/build-release-task.yml@843951dfa652b8b4f5cc8e8ca0b8c4f004eab7fe # 2.0.1477
+    permissions:
+      contents: read
+    with:
+      smoke: true
+      branch: ${{ github.base_ref || github.ref_name }}
+      enable_release_asset: true
+      enable_docker: false
+      enable_nuget: false
+      enable_pypi: false
+      enable_dotnet_publish: false
+
+  # Branch protection's required status check binds this single job by name, so rename the job and the ruleset context together.
+  # Only a pull_request run takes that name, so a dispatch run on a pull request's head cannot post the required check.
+  # A skipped smoke build, for an unchanged target, passes, and a failed or cancelled one blocks (D1.5, D7.4).
+  check-workflow-status:
+    name: ${{ github.event_name == 'pull_request' && 'Check pull request workflow status job' || 'Check workflow status job' }}
+    runs-on: ubuntu-latest
+    needs: [changes, read-versions, validate, smoke-build]
+    # The always() call lets the aggregator run even when a need failed.
+    if: ${{ always() }}
+    steps:
+      - name: Check workflow results step
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          READ_VERSIONS: ${{ needs.read-versions.result }}
+          VALIDATE: ${{ needs.validate.result }}
+          SMOKE_BUILD: ${{ needs.smoke-build.result }}
+        run: |
+          set -Eeuo pipefail
+          failed=0
+          for result in "changes:$CHANGES" "read-versions:$READ_VERSIONS" "validate:$VALIDATE"; do
+            name="${result%%:*}"
+            value="${result#*:}"
+            if [[ "$value" != "success" ]]; then
+              echo "::error::Job '$name' did not succeed ($value)."
+              failed=1
+            fi
+          done
+          if [[ "$SMOKE_BUILD" != "success" && "$SMOKE_BUILD" != "skipped" ]]; then
+            echo "::error::Job 'smoke-build' did not succeed ($SMOKE_BUILD)."
+            failed=1
+          fi
+          exit "$failed"
