@@ -1,0 +1,76 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Vantage Diagnostics",
+        "description": "Choose the Vantage InFusion controller to add diagnostics to.",
+        "data": {
+          "vantage_entry_id": "Vantage controller"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "Every loaded Vantage controller already has diagnostics",
+      "no_vantage_entry": "Set up the Vantage InFusion integration first, and wait for it to load"
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "connectivity": {
+        "name": "Connectivity"
+      }
+    }
+  },
+  "exceptions": {
+    "connection_failed": {
+      "message": "Failed to connect to the controller: {error}"
+    },
+    "get_module_status_failed": {
+      "message": "Failed to read the module status: {errors}"
+    },
+    "get_system_log_failed": {
+      "message": "Failed to read the system log: {errors}"
+    },
+    "get_trigger_history_failed": {
+      "message": "Failed to read the trigger history: {errors}"
+    },
+    "module_status_failed": {
+      "message": "Failed to read the module status: {error}"
+    },
+    "no_enclosure_read": {
+      "message": "No enclosure could be read: {errors}"
+    },
+    "not_loaded": {
+      "message": "No Vantage controller is loaded"
+    },
+    "vantage_not_loaded": {
+      "message": "The Vantage InFusion integration is not loaded"
+    }
+  },
+  "services": {
+    "get_module_status": {
+      "name": "Get module status",
+      "description": "Lists the modules that respond on each controller's enclosure bus, with their status bytes and error counts."
+    },
+    "get_system_log": {
+      "name": "Get system log",
+      "description": "Reads the controller's system log, with the newest entries last for each master.",
+      "fields": {
+        "limit": {
+          "name": "Limit",
+          "description": "The maximum number of entries to return, per master."
+        }
+      }
+    },
+    "get_trigger_history": {
+      "name": "Get trigger history",
+      "description": "Reads which object, such as a button, timer or sensor, started which task, with the newest entries last for each master. Times are in the controller's local time.",
+      "fields": {
+        "limit": {
+          "name": "Limit",
+          "description": "The maximum number of entries to return, per master."
+        }
+      }
+    }
+  }
+}

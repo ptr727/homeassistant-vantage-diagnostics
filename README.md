@@ -2,7 +2,9 @@
 
 Home Assistant integration adding controller diagnostics to the Vantage InFusion integration.
 
-It runs next to the stock [Vantage InFusion][vantage-integration-link] integration and reuses its connection.
+**This integration requires loopj's [Vantage InFusion][vantage-integration-link] integration to be installed and set up first.**
+It adds diagnostics alongside that integration and does not replace it.
+It reuses the stock integration's configuration and opens one extra connection of its own for the trigger and system log events.
 It installs through the Home Assistant Marketplace as a custom repository.
 
 ## Build and Distribution
@@ -49,15 +51,17 @@ See [Release History][history] for complete release notes and older versions.
 ## Overview
 
 This integration adds controller diagnostics to a Home Assistant instance that already runs the stock Vantage InFusion integration.
-The stock integration must be installed and loaded first.
-This integration has no connection settings of its own and reuses the connection the stock integration holds.
+The stock integration must be installed and loaded first, and the setup flow aborts until it is.
+This integration has no connection settings of its own and takes the host and credentials from the stock integration.
 It declares no `requirements`, so it runs on the `aiovantage` version the stock integration installs.
+The diagnostic protocol code that `aiovantage` does not release yet is vendored in `custom_components/vantage_diagnostics/aiovantage_diag/`.
+If the stock integration is reloaded, this integration reloads with it.
 
 It adds the following:
 
 - **`vantage_trigger` events**: Events fired for controller triggers.
 - **`vantage_system_log` events**: Events fired for controller system log entries.
-- **Module connectivity sensors**: One binary sensor per module that reports whether the module is connected.
+- **Module connectivity sensors**: One diagnostic binary sensor per module that reports whether the module responds on its enclosure bus. They are disabled by default.
 - **`get_trigger_history` service**: A response-only service that returns recent trigger history.
 - **`get_system_log` service**: A response-only service that returns the controller system log.
 - **`get_module_status` service**: A response-only service that returns the module status.
@@ -65,8 +69,9 @@ It adds the following:
 ## Installation
 
 Home Assistant 2026.11 folded HACS into Core as the built-in Marketplace.
-Install the stock Vantage InFusion integration first, then follow these steps.
+Install and set up loopj's [Vantage InFusion][vantage-integration-link] integration first, and wait for it to load, then follow these steps.
 
+1. Confirm the Vantage InFusion integration is installed and shows as loaded under **Settings -> Devices & Services**.
 1. In Home Assistant, open **Settings -> Marketplace**.
 1. Add `https://github.com/ptr727/homeassistant-vantage-diagnostics` as a custom repository with category **Integration**.
 1. Install **Vantage Diagnostics** from the Marketplace and restart Home Assistant.
@@ -75,7 +80,8 @@ Install the stock Vantage InFusion integration first, then follow these steps.
 ## Configuration
 
 This integration has no configuration of its own.
-It reuses the connection of the stock Vantage InFusion integration, which must be set up and loaded before you add this one.
+It takes the connection settings of the stock Vantage InFusion integration, which must be set up and loaded before you add this one.
+With several stock entries loaded, the setup flow asks which controller to add diagnostics to.
 
 ## Questions or Issues
 

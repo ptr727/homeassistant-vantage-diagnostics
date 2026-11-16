@@ -1,0 +1,13 @@
+{
+  "services": {
+    "get_module_status": {
+      "service": "mdi:chip"
+    },
+    "get_system_log": {
+      "service": "mdi:text-box-search-outline"
+    },
+    "get_trigger_history": {
+      "service": "mdi:history"
+    }
+  }
+}

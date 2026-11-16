@@ -13,7 +13,7 @@ The `scripts/lint` command covers ruff, `mypy --strict`, and pyright, which CI a
 scripts/setup                 # once: provision the uv-managed .venv
 scripts/fix                   # apply ruff format and ruff check --fix
 scripts/lint                  # verify: ruff format --check, ruff check, mypy --strict, pyright
-.venv/bin/pytest              # the test suite with branch coverage, once tests exist
+.venv/bin/pytest              # the test suite with branch coverage
 ```
 
 The `pre-commit` hook in [`.pre-commit-config.yaml`](./.pre-commit-config.yaml) runs the same four lint checks on every commit.
