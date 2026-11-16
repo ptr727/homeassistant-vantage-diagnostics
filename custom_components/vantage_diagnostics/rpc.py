@@ -36,12 +36,19 @@ class SharedRpc:
         if not self.usable:
             raise ClientConnectionError(UNLOADED)
 
-        task: asyncio.Future[T] = asyncio.ensure_future(request())
+        task: asyncio.Future[T] = asyncio.ensure_future(self._send(request))
         self._tasks.add(task)
         task.add_done_callback(self._done)
 
         # Shielded, so cancelling this wait leaves the request running
         return await asyncio.shield(task)
+
+    async def _send[T](self, request: Callable[[], Awaitable[T]]) -> T:
+        # The task first runs after run() returns, and the stock entry may have started unloading since.
+        # A request on the closed client would quietly reopen its connection, which nothing would then close.
+        if not self.usable:
+            raise ClientConnectionError(UNLOADED)
+        return await request()
 
     def _done(self, task: asyncio.Future[Any]) -> None:
         self._tasks.discard(task)

@@ -68,13 +68,15 @@ async def test_shutdown_gives_up_on_a_stuck_request(
     )
     caplog.set_level("DEBUG")
     rpc = SharedRpc(lambda: True)
+    started = asyncio.Event()
     stuck = asyncio.Event()
 
     async def request() -> None:
+        started.set()
         await stuck.wait()
 
     caller = asyncio.ensure_future(rpc.run(request))
-    await asyncio.sleep(0)
+    await started.wait()
     await rpc.async_shutdown()
 
     assert "still running after shutdown" in caplog.text
@@ -105,6 +107,26 @@ async def test_unusable_when_the_stock_client_is_gone() -> None:
     assert not rpc.usable
     with pytest.raises(ClientConnectionError, match=UNLOADED):
         await rpc.run(request)
+
+
+async def test_request_not_sent_once_unusable_before_it_starts() -> None:
+    """Test that a request admitted while usable is not sent once that has changed."""
+    usable = True
+    rpc = SharedRpc(lambda: usable)
+    sent = False
+
+    async def request() -> None:
+        nonlocal sent
+        sent = True
+
+    # The caller's first step admits the request and schedules its task, which runs after this test resumes
+    caller = asyncio.ensure_future(rpc.run(request))
+    await asyncio.sleep(0)
+    usable = False
+
+    with pytest.raises(ClientConnectionError, match=UNLOADED):
+        await caller
+    assert not sent
 
 
 async def test_unload_awaits_a_request_in_flight(
