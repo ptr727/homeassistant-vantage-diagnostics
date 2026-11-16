@@ -1,0 +1,297 @@
+"""Fixtures for the Vantage Diagnostics integration tests."""
+
+from collections import defaultdict
+from collections.abc import Callable, Generator
+from types import SimpleNamespace
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
+
+import pytest
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+from xsdata.formats.dataclass.models.generics import AnyElement
+
+from custom_components.vantage_diagnostics.const import (
+    CONF_VANTAGE_ENTRY_ID,
+    DOMAIN,
+    VANTAGE_DOMAIN,
+)
+from homeassistant.config_entries import ConfigEntryState
+from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_SSL, CONF_USERNAME
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
+
+HOST = "192.0.2.10"
+MODULE_VID = 102
+ENCLOSURE_VID = 201
+BUTTON_VID = 110
+KEYPAD_VID = 111
+CONTROLLER_VID = 112
+TASK_VID = 120
+
+
+@pytest.fixture(autouse=True)
+def auto_enable_custom_integrations(enable_custom_integrations: None) -> None:
+    """Let Home Assistant load the integration from custom_components."""
+
+
+@pytest.fixture
+def entity_registry_enabled_by_default() -> Generator[None]:
+    """Enable every entity, including those disabled by default."""
+    with patch(
+        "homeassistant.helpers.entity.Entity.entity_registry_enabled_default",
+        return_value=True,
+        new_callable=PropertyMock,
+    ):
+        yield
+
+
+class FakeController:
+    """A stand-in for an aiovantage controller, iterable and subscribable."""
+
+    def __init__(self, objects: list[Any]) -> None:
+        """Hold the objects."""
+        self.objects = objects
+        self.subscribers: list[tuple[type, Callable[[Any], None]]] = []
+
+    def __iter__(self) -> Any:
+        """Iterate the objects."""
+        return iter(self.objects)
+
+    def subscribe(self, event_type: type, callback: Callable[[Any], None]) -> MagicMock:
+        """Record a subscription."""
+        self.subscribers.append((event_type, callback))
+        return MagicMock()
+
+    def fire(self, event: Any) -> None:
+        """Pass an event to the subscribers of its type."""
+        for event_type, callback in self.subscribers:
+            if isinstance(event, event_type):
+                callback(event)
+
+
+def make_module(vid: int = MODULE_VID, name: str = "Module 1") -> SimpleNamespace:
+    """Return a module mounted in the enclosure, on master 1."""
+    return SimpleNamespace(
+        vid=vid,
+        name=name,
+        master=1,
+        parent=SimpleNamespace(vid=ENCLOSURE_VID, position=1),
+    )
+
+
+class FakeClient:
+    """A stand-in for the stock integration's aiovantage client."""
+
+    def __init__(self) -> None:
+        """Build a small constructed project."""
+        self.host = HOST
+        self.peers: list[int] = []
+        self.master_number = 1
+        self.config_client = MagicMock(name="config_client")
+        self.modules = FakeController([make_module()])
+        self.masters = FakeController([])
+        self.objects = {
+            MODULE_VID: self.modules.objects[0],
+            BUTTON_VID: SimpleNamespace(
+                vid=BUTTON_VID,
+                name="Hall Button",
+                parent=SimpleNamespace(vid=KEYPAD_VID, position=1),
+            ),
+            KEYPAD_VID: SimpleNamespace(
+                vid=KEYPAD_VID,
+                name="Hall Keypad",
+                parent=SimpleNamespace(vid=CONTROLLER_VID, position=1),
+            ),
+            CONTROLLER_VID: SimpleNamespace(
+                vid=CONTROLLER_VID, name="Controller 1", parent=None
+            ),
+            TASK_VID: SimpleNamespace(vid=TASK_VID, name="Lamp", parent=None),
+        }
+
+    def __contains__(self, vid: int) -> bool:
+        """Return whether the project has the object."""
+        return vid in self.objects
+
+    def __getitem__(self, vid: int) -> Any:
+        """Return an object."""
+        return self.objects[vid]
+
+
+class FakeEventStream:
+    """A stand-in for the companion's own EventStream."""
+
+    supports_enhanced_log = True
+    start_error: Exception | None = None
+    instances: list[FakeEventStream] = []
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        """Record how it was built."""
+        self.args = args
+        self.kwargs = kwargs
+        self.stop = MagicMock()
+        self.log_subscriptions: list[tuple[Callable[[Any], None], tuple[str, ...]]] = []
+        self.peers_seen: list[Any] = []
+        self.subscribers: dict[type, list[Callable[[Any], None]]] = defaultdict(list)
+        self.unsubscribe = MagicMock()
+        FakeEventStream.instances.append(self)
+
+    async def start(self) -> SimpleNamespace:
+        """Pretend to connect."""
+        if self.start_error is not None:
+            raise self.start_error
+        return SimpleNamespace(supports_enhanced_log=self.supports_enhanced_log)
+
+    def subscribe_enhanced_log(
+        self, callback: Callable[[Any], None], *log_types: str, peers: Any = ()
+    ) -> MagicMock:
+        """Record an enhanced log subscription."""
+        self.log_subscriptions.append((callback, log_types))
+        self.peers_seen.append(list(peers))
+        return self.unsubscribe
+
+    def subscribe(self, event_type: type, callback: Callable[[Any], None]) -> MagicMock:
+        """Record a connection event subscription."""
+        self.subscribers[event_type].append(callback)
+        return self.unsubscribe
+
+    def emit_log(self, line: str) -> None:
+        """Deliver an enhanced log line to every subscription, as the real stream does."""
+        from aiovantage.events import EnhancedLogReceived  # noqa: PLC0415
+
+        for callback, _types in self.log_subscriptions:
+            callback(EnhancedLogReceived(line))
+
+    def emit(self, event: Any) -> None:
+        """Deliver a connection event."""
+        for callback in self.subscribers[type(event)]:
+            callback(event)
+
+
+@pytest.fixture
+def supports_enhanced_log() -> bool:
+    """Whether the controller firmware has the enhanced log."""
+    return True
+
+
+@pytest.fixture
+def stream_start_error() -> Exception | None:
+    """An error the stream raises when it starts, if any."""
+    return None
+
+
+@pytest.fixture
+def fake_stream(
+    supports_enhanced_log: bool, stream_start_error: Exception | None
+) -> Generator[type[FakeEventStream]]:
+    """Replace the companion's EventStream with a fake."""
+    FakeEventStream.instances = []
+    FakeEventStream.supports_enhanced_log = supports_enhanced_log
+    FakeEventStream.start_error = stream_start_error
+    with patch("custom_components.vantage_diagnostics.EventStream", FakeEventStream):
+        yield FakeEventStream
+
+
+@pytest.fixture
+def client() -> FakeClient:
+    """Return the stock client."""
+    return FakeClient()
+
+
+def add_vantage_entry(
+    hass: HomeAssistant,
+    client: FakeClient,
+    state: ConfigEntryState = ConfigEntryState.LOADED,
+) -> MockConfigEntry:
+    """Add a stock entry holding the client, and a device for each module."""
+    entry = MockConfigEntry(
+        domain=VANTAGE_DOMAIN,
+        title="Vantage InFusion",
+        data={
+            CONF_HOST: HOST,
+            CONF_SSL: True,
+            CONF_USERNAME: "user",
+            CONF_PASSWORD: "secret",
+        },
+    )
+    entry.add_to_hass(hass)
+    entry.runtime_data = SimpleNamespace(client=client)
+    entry.mock_state(hass, state)
+    registry = dr.async_get(hass)
+    for module in client.modules:
+        registry.async_get_or_create(
+            config_entry_id=entry.entry_id,
+            identifiers={(VANTAGE_DOMAIN, str(module.vid))},
+            name=module.name,
+        )
+    return entry
+
+
+@pytest.fixture
+def vantage_entry(hass: HomeAssistant, client: FakeClient) -> MockConfigEntry:
+    """Return a loaded stock entry."""
+    return add_vantage_entry(hass, client)
+
+
+@pytest.fixture
+def config_entry(vantage_entry: MockConfigEntry) -> MockConfigEntry:
+    """Return a companion entry following the stock entry."""
+    return MockConfigEntry(
+        domain=DOMAIN,
+        title="Vantage InFusion Diagnostics",
+        data={CONF_VANTAGE_ENTRY_ID: vantage_entry.entry_id},
+        unique_id=vantage_entry.entry_id,
+    )
+
+
+@pytest.fixture(autouse=True)
+def enclosure_lookup() -> Generator[AsyncMock]:
+    """Answer the name lookup of the enclosure, the one object the client lacks."""
+    enclosure = SimpleNamespace(
+        vid=ENCLOSURE_VID,
+        obj=AnyElement(
+            qname="Enclosure",
+            children=[
+                AnyElement(qname="Name", text="Enclosure 1"),
+                AnyElement(qname="Parent", text="1", attributes={"Position": "1"}),
+            ],
+        ),
+    )
+    with patch(
+        "custom_components.vantage_diagnostics.names.ConfigurationInterface.get_object",
+        return_value=[enclosure],
+    ) as get_object:
+        yield get_object
+
+
+@pytest.fixture(autouse=True)
+def modules_read() -> Generator[AsyncMock]:
+    """Answer the bus read, where the module responds."""
+    from custom_components.vantage_diagnostics.aiovantage_diag import ModuleInfo  # noqa: PLC0415
+
+    with patch(
+        "custom_components.vantage_diagnostics.module_status.DiagnosticInterface.get_modules",
+        return_value=[ModuleInfo(address=1, vid=MODULE_VID, errors=0)],
+    ) as get_modules:
+        yield get_modules
+
+
+@pytest.fixture
+async def init_integration(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    fake_stream: type[FakeEventStream],
+) -> MockConfigEntry:
+    """Set up the companion entry."""
+    config_entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+    return config_entry
+
+
+@pytest.fixture
+def mock_setup_entry() -> Generator[AsyncMock]:
+    """Skip setting up the entry a config flow creates."""
+    with patch(
+        "custom_components.vantage_diagnostics.async_setup_entry", return_value=True
+    ) as setup_entry:
+        yield setup_entry
