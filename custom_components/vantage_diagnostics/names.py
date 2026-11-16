@@ -43,7 +43,6 @@ class ObjectNames:
         self._rpc = rpc
         self._cache: dict[int, ObjectInfo] = {}
         self._pending: dict[int, asyncio.Task[ObjectInfo]] = {}
-        self._lookups: set[asyncio.Task[ObjectInfo]] = set()
         self._generation = 0
         self._warned: set[int] = set()
 
@@ -55,14 +54,6 @@ class ObjectNames:
         self._pending.clear()
         self._cache.clear()
         self._warned.clear()
-
-    def cancel(self) -> None:
-        """Stop waiting on lookups, at unload.
-
-        A request already sent still runs to its end, since SharedRpc shields it.
-        """
-        for lookup in self._lookups:
-            lookup.cancel()
 
     async def path(self, vid: int) -> list[str]:
         """Return the names of an object and its parents, eg. sensor, module, enclosure."""
@@ -109,21 +100,18 @@ class ObjectNames:
                 f"vantage_object_name_{vid}",
             )
             self._pending[vid] = pending
-            self._lookups.add(pending)
             pending.add_done_callback(lambda done: self._lookup_done(vid, done))
 
         # Shielded, so a cancelled caller doesn't cancel the lookup the others share
         try:
             return await asyncio.shield(pending)
         except asyncio.CancelledError:
-            # Raise only for a caller that is itself being cancelled, not one whose lookup cancel() stopped at unload
+            # Raise only for a caller that is itself being cancelled, not one whose lookup the unload cancelled
             if (task := asyncio.current_task()) is not None and task.cancelling():
                 raise
             return ObjectInfo(f"VID {vid}", None, None)
 
     def _lookup_done(self, vid: int, lookup: asyncio.Task[ObjectInfo]) -> None:
-        self._lookups.discard(lookup)
-
         # Unless clear() has since let a newer lookup of the same object take its place
         if self._pending.get(vid) is lookup:
             del self._pending[vid]

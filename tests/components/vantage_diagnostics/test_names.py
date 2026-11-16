@@ -161,7 +161,9 @@ async def test_unload_cancels_pending_lookup(
     waiting = asyncio.ensure_future(names.name(70))
     await asyncio.sleep(0)
 
-    names.cancel()
+    # Home Assistant cancels the entry's background tasks at unload, which this stands in for
+    for lookup in list(names._pending.values()):  # noqa: SLF001
+        lookup.cancel()
 
     assert await waiting == "VID 70"
 

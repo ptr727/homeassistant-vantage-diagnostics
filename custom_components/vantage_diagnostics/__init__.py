@@ -100,8 +100,8 @@ async def async_setup_entry(
     names = ObjectNames(hass, entry, client, rpc)
 
     # Home Assistant runs the unload callbacks last in, first out, and also does so if setup fails.
-    # The order wanted is to stop new requests and await those sent, then shut down the coordinator, then stop the stream.
-    # So register the stream's stop first, and the requests' shutdown last.
+    # It starts each one without waiting for the one before, then waits for them all together.
+    # The requests' shutdown is registered last, so it refuses new requests before anything else stops.
     entry.async_on_unload(stream.stop)
     module_status = ModuleStatusCoordinator(hass, entry, client, names, rpc)
     entry.async_on_unload(rpc.async_shutdown)
@@ -181,5 +181,5 @@ async def async_unload_entry(
 ) -> bool:
     """Unload a config entry."""
     # The platforms first, so no sensor listens and nothing polls.
-    # The unload callbacks then shut down the requests and the coordinator, and stop the stream.
+    # The unload callbacks then refuse new requests, stop the coordinator and the stream, and wait for requests already sent.
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)

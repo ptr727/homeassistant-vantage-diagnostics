@@ -6,9 +6,9 @@ from typing import Any, cast
 from unittest.mock import AsyncMock, patch
 
 from aiovantage.errors import ClientConnectionError, ClientResponseError
+import probatio as vol
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
-import voluptuous as vol
 
 from custom_components.vantage_diagnostics.aiovantage_diag import (
     EventLogEntry,
