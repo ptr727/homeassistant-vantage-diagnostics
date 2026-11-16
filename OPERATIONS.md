@@ -22,7 +22,30 @@ The `scripts/setup` command enables the hook in the base clone.
 
 ## Runbooks
 
-Stub. No runbook has been written yet.
+### Entities
+
+Every entity this integration adds has the diagnostic entity category and sits on a device the stock integration owns.
+A module entity's unique ID is `<stock entry ID>:<module VID>:<key>`, and a controller entity's is `<stock entry ID>:<master VID>:<key>`.
+
+| Key | Platform | Device | Enabled by default |
+| --- | --- | --- | --- |
+| `connectivity` | Binary sensor | Each module | No |
+| `hardware_model` | Sensor | Each module | No |
+| `hardware_revision` | Sensor | Each module | No |
+| `firmware_version` | Sensor | Each module | No |
+| `bus_errors` | Sensor | Each module | No |
+| `event_stream` | Binary sensor | The controller this integration connects to | Yes |
+| `host` | Sensor | The controller this integration connects to | No |
+
+The module entities read the enclosure bus through one coordinator, which only polls while one of them is enabled.
+They go unavailable while the event stream is down or the bus can't be read.
+The event stream sensor turns off instead, so an automation can alert on it.
+The controller entities are added only when the stock integration has a device for the master this integration connects to.
+
+### Checking a Module After a Swap
+
+1. Enable the module's **Hardware model**, **Hardware revision** and **Firmware version** sensors.
+1. Compare them with the values in the history from before the swap, or call `vantage_diagnostics.get_module_status` for every module at once.
 
 ## Backup and Recovery
 

@@ -27,6 +27,7 @@ BUTTON_VID = 110
 KEYPAD_VID = 111
 CONTROLLER_VID = 112
 TASK_VID = 120
+MASTER_VID = 130
 
 
 @pytest.fixture(autouse=True)
@@ -86,10 +87,12 @@ class FakeClient:
         """Build a small constructed project."""
         self.host = HOST
         self.peers: list[int] = []
-        self.master_number = 1
+        self.master_number: int | None = 1
         self.config_client = MagicMock(name="config_client")
         self.modules = FakeController([make_module()])
-        self.masters = FakeController([])
+        self.masters = FakeController(
+            [SimpleNamespace(vid=MASTER_VID, name="Controller", number=1)]
+        )
         self.objects = {
             MODULE_VID: self.modules.objects[0],
             BUTTON_VID: SimpleNamespace(
@@ -202,7 +205,7 @@ def add_vantage_entry(
     client: FakeClient,
     state: ConfigEntryState = ConfigEntryState.LOADED,
 ) -> MockConfigEntry:
-    """Add a stock entry holding the client, and a device for each module."""
+    """Add a stock entry holding the client, and a device for each controller and module."""
     entry = MockConfigEntry(
         domain=VANTAGE_DOMAIN,
         title="Vantage InFusion",
@@ -217,11 +220,11 @@ def add_vantage_entry(
     entry.runtime_data = SimpleNamespace(client=client)
     entry.mock_state(hass, state)
     registry = dr.async_get(hass)
-    for module in client.modules:
+    for obj in [*client.masters, *client.modules]:
         registry.async_get_or_create(
             config_entry_id=entry.entry_id,
-            identifiers={(VANTAGE_DOMAIN, str(module.vid))},
-            name=module.name,
+            identifiers={(VANTAGE_DOMAIN, str(obj.vid))},
+            name=obj.name,
         )
     return entry
 
