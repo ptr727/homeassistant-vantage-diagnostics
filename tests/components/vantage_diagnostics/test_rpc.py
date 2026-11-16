@@ -8,7 +8,7 @@ from aiovantage.errors import ClientConnectionError
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.vantage_diagnostics.config_entry import stock_client_released
+from custom_components.vantage_diagnostics.config_entry import close_released_connection
 from custom_components.vantage_diagnostics.const import UNLOADED
 from custom_components.vantage_diagnostics.rpc import SharedRpc
 from homeassistant.config_entries import ConfigEntryState
@@ -163,33 +163,37 @@ async def test_release_checked_after_each_request() -> None:
 
 
 @pytest.mark.parametrize(
-    ("state", "held", "released"),
+    ("state", "held", "closed"),
     [
         (ConfigEntryState.LOADED, True, False),
-        (ConfigEntryState.FAILED_UNLOAD, True, False),
         (ConfigEntryState.UNLOAD_IN_PROGRESS, True, True),
+        (ConfigEntryState.FAILED_UNLOAD, True, True),
         (ConfigEntryState.LOADED, False, True),
         (ConfigEntryState.NOT_LOADED, False, True),
     ],
 )
-async def test_stock_client_released(
+async def test_close_released_connection(
     hass: HomeAssistant,
     client: FakeClient,
     state: ConfigEntryState,
     held: bool,
-    released: bool,
+    closed: bool,
 ) -> None:
-    """Test when the stock integration has stopped using a client."""
+    """Test that the connection is closed unless the stock entry is loaded with the client."""
     entry = add_vantage_entry(hass, client if held else FakeClient(), state)
 
-    assert stock_client_released(entry, cast(Vantage, client)) is released
+    close_released_connection(hass, entry.entry_id, cast(Vantage, client))
+
+    assert client.config_client.close.called is closed
 
 
-async def test_stock_client_released_once_the_entry_is_removed(
-    client: FakeClient,
+async def test_close_released_connection_once_the_entry_is_removed(
+    hass: HomeAssistant, client: FakeClient
 ) -> None:
-    """Test that a removed stock entry no longer uses its client."""
-    assert stock_client_released(None, cast(Vantage, client))
+    """Test that the connection is closed once the stock entry is removed."""
+    close_released_connection(hass, "removed", cast(Vantage, client))
+
+    client.config_client.close.assert_called_once_with()
 
 
 async def test_request_outlasting_the_stock_client_closes_its_connection(

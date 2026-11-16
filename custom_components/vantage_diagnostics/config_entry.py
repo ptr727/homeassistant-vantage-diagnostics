@@ -24,20 +24,8 @@ def stock_entry_loaded(
     if entry is None or entry.state is not ConfigEntryState.LOADED:
         return False
 
-    held = _held_client(entry)
+    held = getattr(getattr(entry, "runtime_data", None), "client", None)
     return held is not None and (client is None or held is client)
-
-
-def stock_client_released(entry: ConfigEntry[Any] | None, client: Vantage) -> bool:
-    """Return whether the stock integration has stopped using the given client."""
-    if entry is None or _held_client(entry) is not client:
-        return True
-
-    # A stock entry that failed to unload keeps its client and goes on using it
-    return entry.state not in (
-        ConfigEntryState.LOADED,
-        ConfigEntryState.FAILED_UNLOAD,
-    )
 
 
 def stock_client_usable(
@@ -53,14 +41,11 @@ def close_released_connection(
     hass: HomeAssistant, vantage_entry_id: str, client: Vantage
 ) -> None:
     """Close the client's config connection once the stock integration no longer uses the client."""
-    if stock_client_released(
-        hass.config_entries.async_get_entry(vantage_entry_id), client
-    ):
+    # The stock unload closes its client before anything else, even an unload that then fails.
+    # So once the stock entry is not loaded with this client, the stock integration has closed it.
+    # A connection still open on it was reopened after that close.
+    if not stock_client_usable(hass, vantage_entry_id, client):
         client.config_client.close()
-
-
-def _held_client(entry: ConfigEntry[Any]) -> Any:
-    return getattr(getattr(entry, "runtime_data", None), "client", None)
 
 
 @dataclass
