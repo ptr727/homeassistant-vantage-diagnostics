@@ -1,0 +1,66 @@
+{
+    "folders": [
+        {
+            "name": "Vantage Diagnostics Integration",
+            "path": "."
+        }
+    ],
+    "settings": {
+        "editor.tabSize": 4,
+        "editor.formatOnPaste": true,
+        "editor.formatOnSave": true,
+        "editor.formatOnType": false,
+        "files.trimTrailingWhitespace": true,
+        // The interpreter is the uv-managed .venv that scripts/setup creates.
+        // The Python extension auto-detects .venv.
+        "python.terminal.activateEnvironment": true,
+        "python.languageServer": "Pylance",
+        // Pylance reads the [tool.pyright] section of pyproject.toml for its mode and rules, so do not override them here.
+        "python.analysis.extraPaths": ["./custom_components"],
+        "python.analysis.autoImportCompletions": true,
+        "python.testing.pytestEnabled": true,
+        "python.testing.unittestEnabled": false,
+        "python.testing.pytestArgs": ["tests"],
+        // Use the tools installed in the venv rather than the extensions' bundled copies.
+        // The editor and the CLI then agree on versions and config.
+        "ruff.importStrategy": "fromEnvironment",
+        "mypy-type-checker.importStrategy": "fromEnvironment",
+        // Format and fix with ruff on save, matching `ruff format` + `ruff check --fix`.
+        "[python]": {
+            "editor.defaultFormatter": "charliermarsh.ruff",
+            "editor.formatOnSave": true,
+            "editor.codeActionsOnSave": {
+                "source.fixAll.ruff": "explicit",
+                "source.organizeImports.ruff": "explicit"
+            }
+        },
+        "github.copilot.chat.commitMessageGeneration.instructions": [
+            {
+                "file": ".github/copilot-instructions.md"
+            }
+        ],
+        "github.copilot.chat.pullRequestDescriptionGeneration.instructions": [
+            {
+                "file": ".github/copilot-instructions.md"
+            }
+        ]
+    },
+    "extensions": {
+        "recommendations": [
+            "anthropic.claude-code",
+            "charliermarsh.ruff",
+            "davidanson.vscode-markdownlint",
+            "editorconfig.editorconfig",
+            "github.vscode-github-actions",
+            "github.vscode-pull-request-github",
+            "ms-python.mypy-type-checker",
+            "ms-python.python",
+            "ms-python.vscode-pylance",
+            "ms-vscode-remote.remote-containers",
+            "redhat.vscode-yaml",
+            "ryanluker.vscode-coverage-gutters",
+            "streetsidesoftware.code-spell-checker",
+            "timonwong.shellcheck"
+        ]
+    }
+}

@@ -1,0 +1,97 @@
+name: Publish project release action
+
+on:
+  # Releases are dispatch-only, so merges never publish.
+  # The Marketplace is a pull model, and the maintainer ships on demand.
+  # A dispatch from main cuts a stable release with a clean NBGV SemVer.
+  # A dispatch from develop cuts a prerelease, and NBGV appends the commit SHA so successive prereleases never collide on a tag.
+  workflow_dispatch: {}
+  # The weekly schedule retests the shipped main against the latest HA matrix and stops.
+  # It never publishes.
+  # It is the publisher-side complement to check-ha-version.yml, which retests develop.
+  # A red scheduled run flags upstream HA drift that breaks the released integration, for a maintainer to act on.
+  schedule:
+    - cron: '0 2 * * MON'
+
+# Ref-scoped, per WORKFLOW.md D7.1: a main and a develop dispatch build different tags and branch-scoped artifacts, so they need not wait on each other.
+# GitHub keeps one pending run per group and a newer one replaces it.
+# The retest-only schedule therefore gets a per-run group and never replaces a pending dispatch.
+# Queue instead of cancel: cancelling a publish mid-flight can leave a half-created GitHub release.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}${{ github.event_name == 'schedule' && format('-{0}', github.run_id) || '' }}
+  cancel-in-progress: false
+
+# GITHUB_TOKEN gets no scope by default, and each job below grants only what it or its hub task uses.
+permissions: {}
+
+jobs:
+
+  # The hub plan refuses a dispatch from any ref but main or develop, which fails this job and skips everything downstream.
+  # It reports publish=true for the schedule too, so the publish job below also requires a dispatch.
+  plan:
+    name: Plan release job
+    uses: ptr727/ProjectTemplate/.github/workflows/publish-plan-task.yml@843951dfa652b8b4f5cc8e8ca0b8c4f004eab7fe # 2.0.1477
+    with:
+      event_name: ${{ github.event_name }}
+      actor: ${{ github.actor }}
+      ref_name: ${{ github.ref_name }}
+
+  read-versions:
+    name: Read HA test matrix job
+    needs: [plan]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - name: Checkout code step
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build HA test matrix step
+        id: matrix
+        uses: ./.github/actions/ha-test-matrix
+
+  # This job runs the same hub gate and inputs as test-pull-request.yml.
+  # Therefore a dispatch against a regressed tip cannot publish, and a scheduled retest of main cannot pass silently.
+  # It runs on every plan that succeeds, the schedule included, rather than on the plan's publish output.
+  validate:
+    name: Validate job
+    needs: [plan, read-versions]
+    uses: ptr727/ProjectTemplate/.github/workflows/validate-task.yml@843951dfa652b8b4f5cc8e8ca0b8c4f004eab7fe # 2.0.1477
+    permissions:
+      contents: read
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+    with:
+      python-directories: |
+        .
+      python-versions: '["3.14"]'
+      test-matrix: ${{ needs.read-versions.outputs.matrix }}
+
+  # Publish ONLY on dispatch (never on schedule): the schedule retests main and stops.
+  # `validate` must succeed - never `skipped`/`failure`/`cancelled` - so a broken tip cannot ship.
+  # The hub task's validate-release job then refuses a main version with a prerelease suffix, or a develop one without.
+  publish:
+    name: Publish project release job
+    needs: [plan, validate]
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      needs.plan.outputs.publish == 'true' &&
+      needs.validate.result == 'success'
+    uses: ptr727/ProjectTemplate/.github/workflows/build-release-task.yml@843951dfa652b8b4f5cc8e8ca0b8c4f004eab7fe # 2.0.1477
+    # The hub task's release upload, artifact cleanup, and supersede dispatch-and-cancel (WORKFLOW.md D4.8) all write with GITHUB_TOKEN.
+    permissions:
+      contents: write
+      actions: write
+    with:
+      ref: ${{ github.sha }}
+      github: true
+      branch: ${{ github.ref_name }}
+      # The one target is the Marketplace zip, which the build-release-asset hook builds.
+      # Every other enable_* input defaults true on the task, so each is turned off.
+      enable_release_asset: true
+      enable_docker: false
+      enable_nuget: false
+      enable_pypi: false
+      enable_dotnet_publish: false

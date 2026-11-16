@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+usage="Usage: scripts/develop [-h | --help]
+Seed config/ if needed, then start Home Assistant with this integration."
+if (($# > 0)); then
+    if (($# == 1)) && [[ "$1" == -h || "$1" == --help ]]; then
+        echo "$usage"
+        exit 0
+    fi
+    echo "Unexpected arguments: $*" >&2
+    echo "$usage" >&2
+    exit 2
+fi
+
+cd "$(dirname "$0")/.."
+
+# Activate the uv-managed .venv (created by scripts/setup) so `hass` resolves.
+if [[ ! -f .venv/bin/activate ]]; then
+    echo "No .venv found - run scripts/setup first." >&2
+    exit 1
+fi
+# shellcheck source=/dev/null
+source .venv/bin/activate
+
+# Seed a minimal HA config if none exists.
+# See scripts/init-config for why default_config is omitted.
+scripts/init-config
+
+# Put custom_components on the import path.
+# This keeps the structure <root>/custom_components/vantage_diagnostics with the Home Assistant configuration in <root>/config, without symlinks.
+# The default expansion keeps `set -u` happy when the variable is unset, as it is outside a venv.
+export PYTHONPATH="${PYTHONPATH:-}:${PWD}/custom_components"
+
+# Start Home Assistant.
+# The --skip-pip flag stops HA from running pip at launch.
+# Those pip child processes make the VS Code debugger report "Server[N] disconnected".
+# The frontend is pre-installed by scripts/setup, so nothing the dev loop needs is missing.
+# The stock Vantage InFusion integration is not part of this repository, so add it to the dev instance as a custom component first.
+hass --config "${PWD}/config" --debug --skip-pip

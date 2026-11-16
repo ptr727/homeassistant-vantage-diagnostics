@@ -1,0 +1,21 @@
+{
+  "domain": "vantage_diagnostics",
+  "name": "Vantage Diagnostics",
+  "after_dependencies": [
+    "vantage"
+  ],
+  "codeowners": [
+    "@ptr727"
+  ],
+  "config_flow": true,
+  "documentation": "https://github.com/ptr727/homeassistant-vantage-diagnostics",
+  "integration_type": "service",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/ptr727/homeassistant-vantage-diagnostics/issues",
+  "loggers": [
+    "aiovantage",
+    "custom_components.vantage_diagnostics"
+  ],
+  "requirements": [],
+  "version": "0.0.0"
+}

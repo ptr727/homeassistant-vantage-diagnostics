@@ -1,0 +1,97 @@
+# https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+#
+# Every ecosystem appears twice, once per target branch (main and develop).
+# Both branches therefore stay current on dependency versions independently of the release cadence.
+# Push-distribution channels, such as the Home Assistant Marketplace, consume main directly.
+# The main branch must therefore get bumps without waiting for the next release.
+# The merge-bot dispatches the merge method per base ref (squash on develop, merge on main).
+# Because develop is strictly forward-only, each branch absorbs its own PRs.
+# Security (CVE) PRs always target the default branch regardless of target-branch.
+#
+# Exclude-patterns keeps the fleet's toolchain packages out of the catch-all bump.
+# A tool's own version bump can flag previously-compliant code, blocking the whole group over it.
+version: 2
+updates:
+
+  - package-ecosystem: "devcontainers"
+    target-branch: "main"
+    directory: "/"
+    schedule:
+      interval: "daily"
+
+  - package-ecosystem: "devcontainers"
+    target-branch: "develop"
+    directory: "/"
+    schedule:
+      interval: "daily"
+
+  # The "/" directory covers only .github/workflows and a root action.yml.
+  # The second glob keeps the pins in the repository's own composite actions current.
+  - package-ecosystem: "github-actions"
+    target-branch: "main"
+    directories:
+      - "/"
+      - "/.github/actions/*"
+    schedule:
+      interval: "daily"
+    groups:
+      actions-deps:
+        patterns:
+          - "*"
+
+  - package-ecosystem: "github-actions"
+    target-branch: "develop"
+    directories:
+      - "/"
+      - "/.github/actions/*"
+    schedule:
+      interval: "daily"
+    groups:
+      actions-deps:
+        patterns:
+          - "*"
+
+  - package-ecosystem: "pip"
+    target-branch: "main"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    groups:
+      pypi-deps:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "ruff"
+          - "pyright"
+          - "mypy"
+    ignore:
+      # The Home Assistant version is owned by check-ha-version.yml and by the homeassistant field in hacs.json, not Dependabot.
+      - dependency-name: "homeassistant"
+      # The pytest-homeassistant-custom-component package pins a specific HA version.
+      # It moves in lockstep with .github/ha-test-versions.json via check-ha-version.yml.
+      - dependency-name: "pytest-homeassistant-custom-component"
+      # The pytest-homeassistant-custom-component package also pins pytest-cov, so widening this constraint independently can break resolution.
+      - dependency-name: "pytest-cov"
+      # The aiovantage pin stands in for the version the stock integration installs.
+      # It moves only when that integration's pin does.
+      - dependency-name: "aiovantage"
+
+  - package-ecosystem: "pip"
+    target-branch: "develop"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    groups:
+      pypi-deps:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "ruff"
+          - "pyright"
+          - "mypy"
+    ignore:
+      - dependency-name: "homeassistant"
+      - dependency-name: "pytest-homeassistant-custom-component"
+      - dependency-name: "pytest-cov"
+      # The aiovantage pin stands in for the version the stock integration installs.
+      - dependency-name: "aiovantage"

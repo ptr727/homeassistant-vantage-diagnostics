@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Seed a minimal Home Assistant config for integration development.
+#
+# The default_config entry is intentionally omitted.
+# It loads the full HA stack, whose heavy optional dependencies are not installed in the devcontainer.
+# A single integration does not need them.
+# This integration reuses the stock Vantage InFusion connection, so that integration must be added first.
+# Once HA is up, add Vantage InFusion, then Vantage Diagnostics, from the UI.
+# Use Settings -> Devices & Services -> Add Integration.
+
+set -Eeuo pipefail
+
+usage="Usage: scripts/init-config [-h | --help]
+Seed a minimal config/configuration.yaml if none exists."
+if (($# > 0)); then
+    if (($# == 1)) && [[ "$1" == -h || "$1" == --help ]]; then
+        echo "$usage"
+        exit 0
+    fi
+    echo "Unexpected arguments: $*" >&2
+    echo "$usage" >&2
+    exit 2
+fi
+
+cd "$(dirname "$0")/.."
+
+if [[ ! -f config/configuration.yaml ]]; then
+    mkdir -p config
+    cat >config/configuration.yaml <<'YAML'
+# Minimal config for developing the Vantage Diagnostics integration in the devcontainer.
+# default_config is omitted on purpose (see scripts/init-config).
+# Add the integrations from the UI: Settings -> Devices & Services -> Add Integration.
+frontend:
+config:
+logger:
+  default: info
+  logs:
+    custom_components.vantage_diagnostics: debug
+YAML
+    echo "Seeded minimal config/configuration.yaml"
+fi
