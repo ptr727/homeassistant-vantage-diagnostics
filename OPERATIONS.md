@@ -47,8 +47,11 @@ The controller entities are added only when the stock integration has a device f
 
 ### Checking a Module After a Swap
 
-1. Before the swap, enable the module's **Hardware model**, **Hardware revision** and **Firmware version** sensors, or note what `vantage_diagnostics.get_module_status` returns for it.
-1. After the swap, compare the sensors' new values with their history, or with the values noted before.
+1. Enable the module's **Hardware model**, **Hardware revision** and **Firmware version** sensors while the module still answers on the bus.
+   A module already off the bus reports nothing, so its sensors stay unknown and `vantage_diagnostics.get_module_status` returns null for those fields.
+   Enabling the sensors ahead of any fault keeps a baseline in their history.
+1. After the swap, compare the sensors' new values with their history.
+   With no history from before the swap, only the new module's values can be read.
 
 ## Backup and Recovery
 
