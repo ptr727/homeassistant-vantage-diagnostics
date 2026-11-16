@@ -18,9 +18,6 @@ runs:
       uses: hacs/action@d556e736723344f83838d08488c983a15381059a # 22.5.0
       with:
         category: integration
-        # HACS reads the license from the default branch, which holds only the empty root commit until the first promotion.
-        # Remove this ignore in the first pull request after that promotion lands LICENSE on main.
-        ignore: license
 
     # The hub type check runs one checker, and the [tool.mypy] section in pyproject.toml makes that mypy --strict.
     # Pyright is the CLI engine behind VS Code's Pylance extension, so running it too keeps the in-editor and CI experience in sync.
