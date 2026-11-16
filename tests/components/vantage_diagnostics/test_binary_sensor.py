@@ -7,7 +7,7 @@ from typing import Any
 from unittest.mock import AsyncMock, patch
 
 from aiovantage.errors import ClientConnectionError
-from aiovantage.events import Disconnected, ObjectAdded
+from aiovantage.events import Disconnected, ObjectAdded, Reconnected
 from freezegun.api import FrozenDateTimeFactory
 import pytest
 from pytest_homeassistant_custom_component.common import (
@@ -34,6 +34,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.util import dt as dt_util
 
 from .conftest import (
@@ -320,8 +321,6 @@ async def test_unavailable_while_stream_down(
     await hass.async_block_till_done()
     assert state_of(hass) == STATE_UNAVAILABLE
 
-    from aiovantage.events import Reconnected  # noqa: PLC0415
-
     fake_stream.instances[0].emit(Reconnected())
     await hass.async_block_till_done()
     assert state_of(hass) == STATE_ON
@@ -576,8 +575,6 @@ async def test_event_stream_sensor_follows_the_stream(
     await hass.async_block_till_done()
     assert stream_state() == STATE_OFF
 
-    from aiovantage.events import Reconnected  # noqa: PLC0415
-
     fake_stream.instances[0].emit(Reconnected())
     await hass.async_block_till_done()
     assert stream_state() == STATE_ON
@@ -591,8 +588,6 @@ async def test_event_stream_sensor_unavailable_while_stock_entry_not_loaded(
     """Test that the event stream sensor is unavailable once the stock entry holds another client."""
     # No state change, which would reload the entry, so only the check is exercised
     vantage_entry.runtime_data = SimpleNamespace(client=FakeClient())
-    from homeassistant.helpers.dispatcher import async_dispatcher_send  # noqa: PLC0415
-
     async_dispatcher_send(hass, init_integration.runtime_data.signal_connection_changed)
     await hass.async_block_till_done()
 

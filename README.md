@@ -62,12 +62,12 @@ It adds the following:
 - **`vantage_trigger` events**: Events fired for controller triggers.
 - **`vantage_system_log` events**: Events fired for controller system log entries.
 - **Module connectivity sensors**: One diagnostic binary sensor per module that reports whether the module responds on its enclosure bus. They are disabled by default.
-- **Module diagnostic sensors**: Four diagnostic sensors per module, read from the module's status on its enclosure bus. They are disabled by default, and they keep their last values while the module is off the bus.
+- **Module diagnostic sensors**: Four diagnostic sensors per module, read from the module's status on its enclosure bus. They are disabled by default, and they keep their last values while the module is off the bus or its enclosure can't be read.
   - **Hardware model**: The model the module reports, which the stock device does not show. The stock device's model is the Design Center object type.
   - **Hardware revision**: The hardware revision the module reports, which changes when a module is swapped for a newer revision of the same hardware.
   - **Firmware version**: The firmware version the module reports.
   - **Bus errors**: How many times the module lost and regained the bus. The controller only raises this count, so the sensor has the `total_increasing` state class.
-- **Event stream sensor**: A diagnostic connectivity binary sensor on the controller, which reports whether this integration's own event stream is connected. That stream is a second Host Command session, apart from the stock integration's. The trigger and system log events arrive on it. It is enabled by default and turns off rather than unavailable while the stream is down.
+- **Event stream sensor**: A diagnostic connectivity binary sensor on the controller, which reports whether this integration's own event stream is connected. That stream is a second Host Command session, apart from the stock integration's. The trigger and system log events arrive on it. It is enabled by default, and it turns off when the stream drops after setup. If the stream can't connect at setup, the entry retries and the sensor stays unavailable.
 - **Host sensor**: A diagnostic sensor on the controller with the host both integrations connect to. The stock integration no longer shows it. It is disabled by default.
 - **`get_trigger_history` service**: A response-only service that returns recent trigger history.
 - **`get_system_log` service**: A response-only service that returns the controller system log.

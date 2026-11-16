@@ -67,10 +67,11 @@ def connected_controller(
         if master.number != client.master_number:
             continue
         if (device := stock_device(hass, entry, master.vid)) is None:
-            break
+            LOGGER.debug("No stock device for master %s, skipping it", master.number)
+            return None
         return master.vid, device
 
-    LOGGER.debug("No stock device for master %s, skipping it", client.master_number)
+    LOGGER.debug("Master %s is not in the project, skipping it", client.master_number)
     return None
 
 
