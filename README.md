@@ -141,7 +141,8 @@ So an automation that alerts on it watches for both off and unavailable.
 
 Each service is response-only, so call it from an automation or script with a `response_variable`, or from **Developer tools -> Actions**.
 Each reads every loaded controller, and on a project with several masters it reads each master in turn.
-Every entry carries the `host` of the controller it was read from.
+Every entry carries the `host` of the controller this integration connects to, which tells entries from different stock entries apart.
+A trigger history or system log entry names the master it was read from in `master`.
 The response holds what was read and an `errors` list naming each master or enclosure that could not be read.
 The trigger history and system log services fail only when nothing at all could be read.
 The module status service lists every module even when no enclosure could be read, with `online` null and the failures in `errors`.
