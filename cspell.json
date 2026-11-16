@@ -85,6 +85,7 @@
     "libsecret",
     "LINQ",
     "logfile",
+    "loopj",
     "miscased",
     "mktemp",
     "mypy",
