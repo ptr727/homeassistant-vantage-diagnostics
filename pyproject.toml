@@ -216,6 +216,9 @@ split-on-trailing-comma = false
 # Allow relative imports within the integration package and within tests
 "custom_components/*/*" = ["TID252"]
 "tests/components/*/*" = ["TID252"]
+# The vendored aiovantage pull request code stays as upstream wrote it, so a diff against the pull request is clean.
+# Upstream documents its classes by field, not by docstring.
+"custom_components/*/aiovantage_diag/*" = ["D101"]
 
 [tool.ruff.lint.mccabe]
 max-complexity = 25
