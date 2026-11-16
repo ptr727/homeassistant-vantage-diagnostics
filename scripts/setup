@@ -9,15 +9,14 @@
 #      CLI verification therefore matches what the IDE shows.
 #      The devcontainer `node:2` feature provides Node.js itself.
 #      The install is global, through npm install -g.
-#   5. The actionlint binary pinned to ACTIONLINT_VERSION, SHA256-verified and installed into /usr/local/bin with sudo.
 #
-# The actionlint hash below is copied from the upstream checksums file when bumping.
+# The setup skips actionlint, since the VS Code task runs it in Docker through the hub's docker_lint.py.
 
 set -Eeuo pipefail
 
 usage="Usage: scripts/setup [-h | --help]
 Set up the dev environment: the .venv, the dev tools, and the host tools the dev loop needs.
-Some installs reach outside the checkout, including sudo installs into /usr/local/bin.
+Some installs reach outside the checkout, such as the global npm install.
 The header comment of scripts/setup lists what it installs."
 if (($# > 0)); then
     if (($# == 1)) && [[ "$1" == -h || "$1" == --help ]]; then
@@ -129,62 +128,4 @@ if command -v npm >/dev/null 2>&1; then
     fi
 else
     echo "npm not available; skipping markdownlint-cli2 install. It is a CI-gated check - run it via its Docker image or in the devcontainer." >&2
-fi
-
-# --- actionlint -----------------------------------------------------------
-# The workflow linter, run as `actionlint -color` over the workflow files.
-# It is pinned with a per-architecture SHA256 from the upstream checksums file.
-ACTIONLINT_VERSION=1.7.7
-
-installed_actionlint="$(actionlint -version 2>/dev/null | head -n1 || true)"
-if [[ "${installed_actionlint}" = "${ACTIONLINT_VERSION}" ]]; then
-    echo "actionlint ${ACTIONLINT_VERSION} already installed, skipping."
-else
-    machine="$(uname -m)"
-    case "${machine}" in
-    x86_64)
-        arch=amd64
-        actionlint_sha=023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757
-        ;;
-    aarch64)
-        arch=arm64
-        actionlint_sha=401942f9c24ed71e4fe71b76c7d638f66d8633575c4016efd2977ce7c28317d0
-        ;;
-    armv7l)
-        arch=armv6
-        actionlint_sha=82e98d7252341b83fa557764824f225fa50431801b8e3d8e99f70dc1efc317b2
-        ;;
-    *)
-        echo "Unsupported architecture for actionlint: ${machine}" >&2
-        exit 1
-        ;;
-    esac
-    url="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_${arch}.tar.gz"
-    tmp=$(mktemp)
-    extract_dir=$(mktemp -d)
-    # The trap covers both the download tarball and the extract directory.
-    # A failure in tar, install, or the checksum check therefore leaks no temp directories.
-    trap 'rm -rf "$extract_dir"; rm -f "$tmp"' EXIT
-    echo "Downloading actionlint ${ACTIONLINT_VERSION} (${arch}) from ${url}"
-    curl -fsSL "${url}" -o "${tmp}"
-
-    actual_sha=$(sha256sum "${tmp}" | awk '{print $1}')
-    if [[ "${actual_sha}" != "${actionlint_sha}" ]]; then
-        echo "actionlint checksum mismatch!" >&2
-        echo "  expected: ${actionlint_sha}" >&2
-        echo "  actual:   ${actual_sha}" >&2
-        exit 1
-    fi
-    echo "Verified sha256 ${actionlint_sha}"
-
-    tar -xzf "${tmp}" -C "${extract_dir}" actionlint
-    sudo install -m 0755 "${extract_dir}/actionlint" /usr/local/bin/actionlint
-    # Explicit cleanup runs before the trap is disabled.
-    # An interruption (SIGINT) or a failed rm during this window then still falls back to the trap as a safety net.
-    # The trap is cleared only after both resources are gone.
-    rm -rf "${extract_dir}"
-    rm -f "${tmp}"
-    trap - EXIT
-    installed_actionlint="$(actionlint -version | head -n1)"
-    echo "Installed: actionlint ${installed_actionlint}"
 fi

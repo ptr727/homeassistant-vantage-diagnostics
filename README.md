@@ -2,7 +2,7 @@
 
 Home Assistant integration adding controller diagnostics to the Vantage InFusion integration.
 
-**This integration requires loopj's [Vantage InFusion][vantage-integration-link] integration to be installed and set up first.**
+**This integration requires the [Vantage InFusion][vantage-integration-link] integration by loopj to be installed and set up first.**
 It adds diagnostics alongside that integration and does not replace it.
 It reuses the stock integration's configuration and opens one extra connection of its own for the trigger and system log events.
 It installs through the Home Assistant Marketplace as a custom repository.
@@ -68,7 +68,7 @@ It adds the following:
 
 ## Installation
 
-Install and set up loopj's [Vantage InFusion][vantage-integration-link] integration first, and wait for it to load, then follow these steps.
+Install and set up the [Vantage InFusion][vantage-integration-link] integration by loopj first, and wait for it to load, then follow these steps.
 Home Assistant 2026.11 folded HACS into Core as the built-in Marketplace.
 On 2026.10, which is the minimum, install through HACS instead.
 
