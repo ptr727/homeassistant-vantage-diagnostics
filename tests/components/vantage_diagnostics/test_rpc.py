@@ -12,9 +12,14 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 
 
+def never_closed() -> None:
+    """Stand in for closing the connection, which these tests never expect."""
+    raise AssertionError("must not close the connection")
+
+
 async def test_cancelled_caller_leaves_the_request_running() -> None:
     """Test that cancelling the wait for a request does not cancel the request."""
-    rpc = SharedRpc(lambda: True)
+    rpc = SharedRpc(lambda: True, never_closed)
     release = asyncio.Event()
     finished = asyncio.Event()
 
@@ -37,15 +42,17 @@ async def test_cancelled_caller_leaves_the_request_running() -> None:
 
 async def test_shutdown_waits_for_requests_and_refuses_new_ones() -> None:
     """Test that a shutdown stops new requests and awaits those sent."""
-    rpc = SharedRpc(lambda: True)
+    rpc = SharedRpc(lambda: True, never_closed)
+    started = asyncio.Event()
     release = asyncio.Event()
 
     async def request() -> str:
+        started.set()
         await release.wait()
         return "reply"
 
     caller = asyncio.ensure_future(rpc.run(request))
-    await asyncio.sleep(0)
+    await started.wait()
     shutdown = asyncio.ensure_future(rpc.async_shutdown())
     await asyncio.sleep(0)
 
@@ -67,7 +74,7 @@ async def test_shutdown_gives_up_on_a_stuck_request(
         "custom_components.vantage_diagnostics.rpc.SHUTDOWN_TIMEOUT", 0.01
     )
     caplog.set_level("DEBUG")
-    rpc = SharedRpc(lambda: True)
+    rpc = SharedRpc(lambda: True, never_closed)
     started = asyncio.Event()
     stuck = asyncio.Event()
 
@@ -86,7 +93,7 @@ async def test_shutdown_gives_up_on_a_stuck_request(
 
 async def test_request_error_reaches_the_caller_only_once() -> None:
     """Test that a failing request raises to its caller."""
-    rpc = SharedRpc(lambda: True)
+    rpc = SharedRpc(lambda: True, never_closed)
 
     async def request() -> None:
         raise ValueError("Bad reply")
@@ -98,7 +105,7 @@ async def test_request_error_reaches_the_caller_only_once() -> None:
 async def test_unusable_when_the_stock_client_is_gone() -> None:
     """Test that a request is refused once the stock client may no longer be used."""
     usable = True
-    rpc = SharedRpc(lambda: usable)
+    rpc = SharedRpc(lambda: usable, never_closed)
     usable = False
 
     async def request() -> None:
@@ -112,7 +119,7 @@ async def test_unusable_when_the_stock_client_is_gone() -> None:
 async def test_request_not_sent_once_unusable_before_it_starts() -> None:
     """Test that a request admitted while usable is not sent once that has changed."""
     usable = True
-    rpc = SharedRpc(lambda: usable)
+    rpc = SharedRpc(lambda: usable, never_closed)
     sent = False
 
     async def request() -> None:
@@ -127,6 +134,54 @@ async def test_request_not_sent_once_unusable_before_it_starts() -> None:
     with pytest.raises(ClientConnectionError, match=UNLOADED):
         await caller
     assert not sent
+
+
+async def test_connection_closed_after_a_request_outlasting_the_stock_client() -> None:
+    """Test that a request ending after the stock client went closes its connection."""
+    usable = True
+    closed = 0
+
+    def close_connection() -> None:
+        nonlocal closed
+        closed += 1
+
+    rpc = SharedRpc(lambda: usable, close_connection)
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def request() -> str:
+        started.set()
+        await release.wait()
+        return "reply"
+
+    # Stands in for a request reconnecting while the stock unload closes the client
+    caller = asyncio.ensure_future(rpc.run(request))
+    await started.wait()
+    usable = False
+    release.set()
+
+    assert await caller == "reply"
+    assert closed == 1
+
+
+async def test_connection_left_open_when_only_this_runner_shuts_down() -> None:
+    """Test that shutting this runner down leaves the stock client's connection alone."""
+    rpc = SharedRpc(lambda: True, never_closed)
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def request() -> str:
+        started.set()
+        await release.wait()
+        return "reply"
+
+    caller = asyncio.ensure_future(rpc.run(request))
+    await started.wait()
+    shutdown = asyncio.ensure_future(rpc.async_shutdown())
+    release.set()
+
+    await shutdown
+    assert await caller == "reply"
 
 
 async def test_unload_awaits_a_request_in_flight(

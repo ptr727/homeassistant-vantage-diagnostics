@@ -96,6 +96,7 @@ async def async_setup_entry(
     )
     rpc = SharedRpc(
         lambda: entry.runtime_data.stock_loaded(hass),
+        client.config_client.close,
     )
     names = ObjectNames(hass, entry, client, rpc)
 
