@@ -24,8 +24,24 @@ def stock_entry_loaded(
     if entry is None or entry.state is not ConfigEntryState.LOADED:
         return False
 
-    held = getattr(getattr(entry, "runtime_data", None), "client", None)
+    held = _held_client(entry)
     return held is not None and (client is None or held is client)
+
+
+def stock_client_released(entry: ConfigEntry[Any] | None, client: Vantage) -> bool:
+    """Return whether the stock integration has stopped using the given client."""
+    if entry is None or _held_client(entry) is not client:
+        return True
+
+    # A stock entry that failed to unload keeps its client and goes on using it
+    return entry.state not in (
+        ConfigEntryState.LOADED,
+        ConfigEntryState.FAILED_UNLOAD,
+    )
+
+
+def _held_client(entry: ConfigEntry[Any]) -> Any:
+    return getattr(getattr(entry, "runtime_data", None), "client", None)
 
 
 @dataclass

@@ -27,6 +27,7 @@ from homeassistant.util.ssl import get_default_no_verify_context
 from .config_entry import (
     VantageDiagnosticsConfigEntry,
     VantageDiagnosticsData,
+    stock_client_released,
     stock_entry_loaded,
 )
 from .const import CONF_VANTAGE_ENTRY_ID, DOMAIN, LOGGER, VANTAGE_DOMAIN
@@ -94,10 +95,22 @@ async def async_setup_entry(
         ssl=vantage_entry.data.get(CONF_SSL, True),
         ssl_context_factory=get_default_no_verify_context,
     )
-    rpc = SharedRpc(
-        lambda: entry.runtime_data.stock_loaded(hass),
-        client.config_client.close,
-    )
+    # Bound to the stock entry and client found here rather than to this entry's runtime data.
+    # That data is gone after an unload, or holds a newer client once a later setup replaces it.
+    vantage_entry_id = vantage_entry.entry_id
+
+    def stock_usable() -> bool:
+        return stock_entry_loaded(
+            hass.config_entries.async_get_entry(vantage_entry_id), client
+        )
+
+    def close_released_connection() -> None:
+        if stock_client_released(
+            hass.config_entries.async_get_entry(vantage_entry_id), client
+        ):
+            client.config_client.close()
+
+    rpc = SharedRpc(stock_usable, close_released_connection)
     names = ObjectNames(hass, entry, client, rpc)
 
     # Home Assistant runs the unload callbacks last in, first out, and also does so if setup fails.

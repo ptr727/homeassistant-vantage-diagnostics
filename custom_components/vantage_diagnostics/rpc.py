@@ -21,11 +21,14 @@ class SharedRpc:
     """
 
     def __init__(
-        self, usable: Callable[[], bool], close_connection: Callable[[], None]
+        self, usable: Callable[[], bool], close_if_released: Callable[[], None]
     ) -> None:
-        """Initialize the runner, given whether the stock client may still be used, and how to close its connection."""
+        """Initialize the runner.
+
+        Given whether the stock client may still be used, and how to close its connection once the stock integration no longer uses it.
+        """
         self._usable = usable
-        self._close_connection = close_connection
+        self._close_if_released = close_if_released
         self._tasks: set[asyncio.Future[Any]] = set()
         self._closed = False
 
@@ -51,9 +54,8 @@ class SharedRpc:
             return await request()
         finally:
             # A request that was reconnecting when the stock unload closed the client finishes opening the connection after that close.
-            # Nothing else would close that connection, so close it once the stock client may no longer be used.
-            if not self._usable():
-                self._close_connection()
+            # Nothing else would close that connection.
+            self._close_if_released()
 
     def _done(self, task: asyncio.Future[Any]) -> None:
         self._tasks.discard(task)
