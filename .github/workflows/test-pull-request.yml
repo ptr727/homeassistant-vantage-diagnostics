@@ -1,7 +1,7 @@
 name: Test pull request action
 
 # Thin caller: the gate is the hub's reusable validate-task.yml, and the smoke build is its reusable build-release-task.yml.
-# The pull_request trigger is what makes the ruleset-bound aggregator below post its required check (D1.2).
+# The pull_request trigger is what makes the ruleset-bound aggregator below post its required check (D1.5).
 on:
   pull_request:
   workflow_dispatch:
