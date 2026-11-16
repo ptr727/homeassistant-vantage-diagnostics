@@ -218,6 +218,40 @@ async def test_request_outlasting_the_stock_client_closes_its_connection(
     client.config_client.close.assert_called_once_with()
 
 
+async def test_request_outlasting_this_entry_closes_the_released_connection(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    vantage_entry: MockConfigEntry,
+    client: FakeClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that a request still running after this entry unloaded closes the connection once the stock client is released."""
+    monkeypatch.setattr(
+        "custom_components.vantage_diagnostics.rpc.SHUTDOWN_TIMEOUT", 0.01
+    )
+    rpc = init_integration.runtime_data.rpc
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def request() -> str:
+        started.set()
+        await release.wait()
+        return "reply"
+
+    caller = hass.async_create_task(rpc.run(request))
+    await started.wait()
+
+    # The unload gives up waiting on the request, and drops this entry's runtime data
+    assert await hass.config_entries.async_unload(init_integration.entry_id)
+    assert not hasattr(init_integration, "runtime_data")
+
+    vantage_entry.mock_state(hass, ConfigEntryState.UNLOAD_IN_PROGRESS)
+    release.set()
+
+    assert await caller == "reply"
+    client.config_client.close.assert_called_once_with()
+
+
 async def test_request_leaves_the_connection_open_while_the_stock_client_is_in_use(
     init_integration: MockConfigEntry, client: FakeClient
 ) -> None:

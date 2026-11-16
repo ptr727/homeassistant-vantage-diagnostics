@@ -1,6 +1,7 @@
 """The Vantage Diagnostics integration, adding diagnostics to the stock Vantage one."""
 
 import asyncio
+from functools import partial
 from typing import Any
 
 from aiovantage import Vantage
@@ -27,7 +28,8 @@ from homeassistant.util.ssl import get_default_no_verify_context
 from .config_entry import (
     VantageDiagnosticsConfigEntry,
     VantageDiagnosticsData,
-    stock_client_released,
+    close_released_connection,
+    stock_client_usable,
     stock_entry_loaded,
 )
 from .const import CONF_VANTAGE_ENTRY_ID, DOMAIN, LOGGER, VANTAGE_DOMAIN
@@ -97,20 +99,10 @@ async def async_setup_entry(
     )
     # Bound to the stock entry and client found here rather than to this entry's runtime data.
     # That data is gone after an unload, or holds a newer client once a later setup replaces it.
-    vantage_entry_id = vantage_entry.entry_id
-
-    def stock_usable() -> bool:
-        return stock_entry_loaded(
-            hass.config_entries.async_get_entry(vantage_entry_id), client
-        )
-
-    def close_released_connection() -> None:
-        if stock_client_released(
-            hass.config_entries.async_get_entry(vantage_entry_id), client
-        ):
-            client.config_client.close()
-
-    rpc = SharedRpc(stock_usable, close_released_connection)
+    rpc = SharedRpc(
+        partial(stock_client_usable, hass, vantage_entry.entry_id, client),
+        partial(close_released_connection, hass, vantage_entry.entry_id, client),
+    )
     names = ObjectNames(hass, entry, client, rpc)
 
     # Home Assistant runs the unload callbacks last in, first out, and also does so if setup fails.

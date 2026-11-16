@@ -40,6 +40,25 @@ def stock_client_released(entry: ConfigEntry[Any] | None, client: Vantage) -> bo
     )
 
 
+def stock_client_usable(
+    hass: HomeAssistant, vantage_entry_id: str, client: Vantage
+) -> bool:
+    """Return whether the stock entry is loaded and still holds the given client."""
+    return stock_entry_loaded(
+        hass.config_entries.async_get_entry(vantage_entry_id), client
+    )
+
+
+def close_released_connection(
+    hass: HomeAssistant, vantage_entry_id: str, client: Vantage
+) -> None:
+    """Close the client's config connection once the stock integration no longer uses the client."""
+    if stock_client_released(
+        hass.config_entries.async_get_entry(vantage_entry_id), client
+    ):
+        client.config_client.close()
+
+
 def _held_client(entry: ConfigEntry[Any]) -> Any:
     return getattr(getattr(entry, "runtime_data", None), "client", None)
 
@@ -72,6 +91,4 @@ class VantageDiagnosticsData:
 
     def stock_loaded(self, hass: HomeAssistant) -> bool:
         """Return whether the stock entry is loaded and still holds our client."""
-        return stock_entry_loaded(
-            hass.config_entries.async_get_entry(self.vantage_entry_id), self.client
-        )
+        return stock_client_usable(hass, self.vantage_entry_id, self.client)
