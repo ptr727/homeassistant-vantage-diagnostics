@@ -3,12 +3,11 @@
 import asyncio
 from datetime import timedelta
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 from aiovantage.errors import ClientConnectionError
 from aiovantage.events import Disconnected, ObjectAdded
-from aiovantage.objects import SystemObject
 from freezegun.api import FrozenDateTimeFactory
 import pytest
 from pytest_homeassistant_custom_component.common import (
@@ -34,7 +33,7 @@ from homeassistant.const import (
     EntityCategory,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.util import dt as dt_util
 
 from .conftest import (
@@ -335,30 +334,63 @@ async def test_unavailable_while_stock_entry_not_loaded(
     assert state_of(hass) == STATE_UNAVAILABLE
 
 
-async def test_device_info_has_identifiers_only(
-    hass: HomeAssistant, init_integration: MockConfigEntry
+async def test_entity_joins_the_stock_device(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    vantage_entry: MockConfigEntry,
 ) -> None:
-    """Test that the entity names the stock device by identifiers, and nothing else."""
-    from custom_components.vantage_diagnostics.binary_sensor import (  # noqa: PLC0415
-        VantageModuleConnectivityEntity,
+    """Test that the entity sits on the stock device, and no second device exists."""
+    dev_reg = dr.async_get(hass)
+    device = dev_reg.async_get_device_by_identifier(
+        ("vantage", str(MODULE_VID)), vantage_entry.entry_id
     )
+    assert device
+    assert device.name == "Module 1"
 
-    entity = VantageModuleConnectivityEntity(
-        init_integration,
-        cast(SystemObject, make_module()),
-    )
-
-    assert entity.device_info == {"identifiers": {("vantage", str(MODULE_VID))}}
+    entity = er.async_get(hass).async_get("binary_sensor.module_1_connectivity")
+    assert entity
+    assert entity.device_id == device.id
     assert entity.unique_id == f"{MODULE_VID}:connectivity"
+    assert sensor_id(hass) == "binary_sensor.module_1_connectivity"
+    devices = [
+        d for d in dev_reg.devices if ("vantage", str(MODULE_VID)) in d.identifiers
+    ]
+    assert devices == [device]
+
+
+async def test_module_without_stock_device_gets_no_entity(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    client: FakeClient,
+) -> None:
+    """Test that a module the stock integration has not registered is skipped."""
+    client.modules.fire(ObjectAdded(obj=make_module(104, "Module 4")))
+    await hass.async_block_till_done()
+
+    assert (
+        er.async_get(hass).async_get_entity_id(
+            "binary_sensor", DOMAIN, "104:connectivity"
+        )
+        is None
+    )
+    assert not [
+        d for d in dr.async_get(hass).devices if ("vantage", "104") in d.identifiers
+    ]
 
 
 async def test_module_added_later(
     hass: HomeAssistant,
     init_integration: MockConfigEntry,
     client: FakeClient,
+    vantage_entry: MockConfigEntry,
 ) -> None:
     """Test that a module the stock integration learns of gets a sensor."""
     module = make_module(103, "Module 2")
+    dr.async_get(hass).async_get_or_create(
+        config_entry_id=vantage_entry.entry_id,
+        identifiers={("vantage", "103")},
+        name="Module 2",
+    )
     client.modules.fire(ObjectAdded(obj=module))
     await hass.async_block_till_done()
 
