@@ -73,7 +73,8 @@ It adds the following, each described in its own section below:
 
 Both events arrive on this integration's own event stream, which needs controller firmware with the enhanced log.
 On older firmware the integration logs that no trigger or system log events will fire, and the rest of it still works.
-Each event carries the `host` of the controller it came from.
+Each event carries the `host` of the controller this integration connects to.
+On a project with several masters, the stream also carries the other masters' events, and they carry that same `host`.
 They keep the names the earlier fork of the stock integration fired, so automations written for that fork keep working.
 
 ### `vantage_trigger`
@@ -140,8 +141,10 @@ So an automation that alerts on it watches for both off and unavailable.
 
 Each service is response-only, so call it from an automation or script with a `response_variable`, or from **Developer tools -> Actions**.
 Each reads every loaded controller, and on a project with several masters it reads each master in turn.
+Every entry carries the `host` of the controller it was read from.
 The response holds what was read and an `errors` list naming each master or enclosure that could not be read.
-The service fails only when nothing at all could be read.
+The trigger history and system log services fail only when nothing at all could be read.
+The module status service lists every module even when no enclosure could be read, with `online` null and the failures in `errors`.
 
 | Service | Fields | Returns |
 | --- | --- | --- |
