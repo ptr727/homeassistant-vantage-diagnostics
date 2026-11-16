@@ -43,6 +43,9 @@
     "not_loaded": {
       "message": "No Vantage controller is loaded"
     },
+    "vantage_entry_removed": {
+      "message": "The Vantage InFusion entry this was attached to was removed, so delete this entry and add it again"
+    },
     "vantage_not_loaded": {
       "message": "The Vantage InFusion integration is not loaded"
     }

@@ -1,17 +1,11 @@
 """Services that read the controller's diagnostics, as InFusion Diagnostics shows them."""
 
 from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING
+from functools import partial
 
 from aiovantage import Vantage
 from aiovantage.errors import ClientResponseError
-
-# Type check against probatio, which Home Assistant 2026.9.0 and later load as voluptuous
-# TODO: Import probatio directly once hacs.json requires Home Assistant 2026.9.0
-if TYPE_CHECKING:
-    import probatio as vol
-else:
-    import voluptuous as vol
+import probatio as vol
 
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import (
@@ -24,10 +18,10 @@ from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 import homeassistant.helpers.config_validation as cv
 from homeassistant.util.json import JsonValueType
 
-from .aiovantage_diag import DiagnosticInterface
+from .aiovantage_diag import DiagnosticInterface, SysLogType
 from .config_entry import VantageDiagnosticsConfigEntry
 from .const import DOMAIN, SERVICE_GET_SYSTEM_LOG, SERVICE_GET_TRIGGER_HISTORY, UNLOADED
-from .system_log import log_type_name
+from .helpers import enum_name, error_text
 from .triggers import describe_trigger
 
 ATTR_LIMIT = "limit"
@@ -80,7 +74,7 @@ def _read_failed(
     errors: list[ReadError],
 ) -> bool:
     """Record a master that couldn't be read, and return whether to read the next."""
-    errors.append(_master_error(vantage, masters[index], _error_text(err)))
+    errors.append(_master_error(vantage, masters[index], error_text(err)))
 
     # A peer's error answer is read in full before it is reported.
     # So the shared connection stays in step, and the next peer can be read.
@@ -121,30 +115,30 @@ def format_errors(errors: list[ReadError]) -> str:
     return "; ".join(parts)
 
 
-def _error_text(err: Exception) -> str:
-    # A read timeout or a dropped connection carries no message
-    return str(err) or type(err).__name__
-
-
 async def _trigger_history(
     entry: VantageDiagnosticsConfigEntry, call: ServiceCall, errors: list[ReadError]
 ) -> list[JsonValueType]:
     # Captured once, since HA deletes runtime_data after an unload
     vantage = entry.runtime_data.client
     names = entry.runtime_data.object_names
+    rpc = entry.runtime_data.rpc
 
     entries: list[JsonValueType] = []
     masters = _masters(vantage)
     for index, master in enumerate(masters):
-        # The entry was unloaded mid-read, so don't reopen its closed client
-        if names.closed:
+        # The stock integration, which owns the client, may have unloaded mid-read
+        if not rpc.usable:
             errors.extend(_not_read(vantage, masters[index:], UNLOADED))
             break
 
         # Keep what the other masters returned when one can't be read
         try:
-            log = await DiagnosticInterface.get_event_log(
-                vantage.config_client, master=master
+            log = await rpc.run(
+                partial(
+                    DiagnosticInterface.get_event_log,
+                    vantage.config_client,
+                    master=master,
+                )
             )
         except Exception as err:  # noqa: BLE001
             if _read_failed(vantage, masters, index, err, errors):
@@ -178,19 +172,23 @@ async def _system_log(
 ) -> list[JsonValueType]:
     # Captured once, since HA deletes runtime_data after an unload
     vantage = entry.runtime_data.client
-    names = entry.runtime_data.object_names
+    rpc = entry.runtime_data.rpc
 
     entries: list[JsonValueType] = []
     masters = _masters(vantage)
     for index, master in enumerate(masters):
-        # The entry was unloaded mid-read, so don't reopen its closed client
-        if names.closed:
+        # The stock integration, which owns the client, may have unloaded mid-read
+        if not rpc.usable:
             errors.extend(_not_read(vantage, masters[index:], UNLOADED))
             break
 
         try:
-            log = await DiagnosticInterface.get_sys_log(
-                vantage.config_client, master=master
+            log = await rpc.run(
+                partial(
+                    DiagnosticInterface.get_sys_log,
+                    vantage.config_client,
+                    master=master,
+                )
             )
         except Exception as err:  # noqa: BLE001
             if _read_failed(vantage, masters, index, err, errors):
@@ -203,7 +201,7 @@ async def _system_log(
                 "time": item.time,
                 "host": vantage.host,
                 "master": master or vantage.master_number,
-                "type": log_type_name(item.type),
+                "type": enum_name(SysLogType, item.type),
                 "source": item.src,
                 "message": (item.msg or "").strip(),
             }
@@ -243,7 +241,7 @@ def async_register_response_service(
             try:
                 items.extend(await read(entry, call, errors))
             except Exception as err:  # noqa: BLE001
-                errors.append({"host": host, "error": _error_text(err)})
+                errors.append({"host": host, "error": error_text(err)})
 
         # Report what could be read, and only fail when nothing could
         if errors and not items:

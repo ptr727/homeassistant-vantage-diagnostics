@@ -1,6 +1,7 @@
 """Resolve Vantage object names, including objects the stock integration doesn't load."""
 
 import asyncio
+from functools import partial
 from typing import Any, NamedTuple
 
 from aiovantage import Vantage
@@ -11,6 +12,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
 from .const import LOGGER
+from .rpc import SharedRpc
 
 # Guards against a parent loop in the controller's configuration
 MAX_PATH_DEPTH = 8
@@ -28,18 +30,22 @@ class ObjectNames:
     """Resolve object names and parent chains, including objects not loaded."""
 
     def __init__(
-        self, hass: HomeAssistant, entry: ConfigEntry[Any], vantage: Vantage
+        self,
+        hass: HomeAssistant,
+        entry: ConfigEntry[Any],
+        vantage: Vantage,
+        rpc: SharedRpc,
     ) -> None:
         """Initialize the resolver."""
         self._hass = hass
         self._entry = entry
         self._vantage = vantage
+        self._rpc = rpc
         self._cache: dict[int, ObjectInfo] = {}
         self._pending: dict[int, asyncio.Task[ObjectInfo]] = {}
         self._lookups: set[asyncio.Task[ObjectInfo]] = set()
         self._generation = 0
         self._warned: set[int] = set()
-        self.closed = False
 
     def clear(self) -> None:
         """Forget looked up objects, eg. after the controller is reprogrammed."""
@@ -51,8 +57,10 @@ class ObjectNames:
         self._warned.clear()
 
     def cancel(self) -> None:
-        """Stop looking objects up, before the client closes, so none reopens it."""
-        self.closed = True
+        """Stop waiting on lookups, at unload.
+
+        A request already sent still runs to its end, since SharedRpc shields it.
+        """
         for lookup in self._lookups:
             lookup.cancel()
 
@@ -89,7 +97,7 @@ class ObjectNames:
         if (info := self._cache.get(vid)) is not None:
             return info
 
-        if self.closed:
+        if not self._rpc.usable:
             return ObjectInfo(f"VID {vid}", None, None)
 
         # Share a lookup already in flight rather than asking the controller again
@@ -122,8 +130,10 @@ class ObjectNames:
 
     async def _fetch(self, vid: int, generation: int) -> ObjectInfo:
         try:
-            objects = await ConfigurationInterface.get_object(
-                self._vantage.config_client, vid
+            objects = await self._rpc.run(
+                partial(
+                    ConfigurationInterface.get_object, self._vantage.config_client, vid
+                )
             )
         except ClientError as err:
             # Not cached, so the next lookup tries again

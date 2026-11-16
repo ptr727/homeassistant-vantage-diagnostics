@@ -1,48 +1,18 @@
-"""Diagnostic protocol code that aiovantage does not release yet.
+"""The diagnostic protocol code that aiovantage does not release yet, vendored here.
 
-Each group prefers aiovantage's own copy, for when upstream merges the pull requests.
-Otherwise it falls back to the vendored copy in this package.
+Everything is imported from the vendored copies, never from aiovantage.
+The stock integration installs its own aiovantage, so a copy of upstream's code could be absent or differ.
+Switching to upstream's code is a deliberate, tested change, made once the stock integration's pin includes the merged pull requests.
 """
 
-from typing import TYPE_CHECKING
-
-# Type check against the vendored copies, which runtime imports mirror once released
-if TYPE_CHECKING:
-    from .diagnostic import DiagnosticInterface, EventLogEntry, ModuleInfo, SysLogEntry
-    from .events import (
-        SystemLogReceived,
-        TriggerReceived,
-        subscribe_system_log,
-        subscribe_triggers,
-    )
-    from .log_types import SysLogType, TriggerType
-else:
-    try:
-        from aiovantage.config_client import (
-            DiagnosticInterface,
-            EventLogEntry,
-            ModuleInfo,
-            SysLogEntry,
-        )
-    except ImportError:
-        from .diagnostic import (
-            DiagnosticInterface,
-            EventLogEntry,
-            ModuleInfo,
-            SysLogEntry,
-        )
-
-    try:
-        from aiovantage.config_client import SysLogType, TriggerType
-    except ImportError:
-        from .log_types import SysLogType, TriggerType
-
-    try:
-        from aiovantage.events import SystemLogReceived, TriggerReceived
-    except ImportError:
-        from .events import SystemLogReceived, TriggerReceived
-
-    from .events import subscribe_system_log, subscribe_triggers
+from .diagnostic import DiagnosticInterface, EventLogEntry, ModuleInfo, SysLogEntry
+from .events import (
+    SystemLogReceived,
+    TriggerReceived,
+    subscribe_system_log,
+    subscribe_triggers,
+)
+from .log_types import SysLogType, TriggerType
 
 __all__ = [
     "DiagnosticInterface",

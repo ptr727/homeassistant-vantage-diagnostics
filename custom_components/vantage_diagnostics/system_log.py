@@ -8,6 +8,7 @@ from homeassistant.core import HomeAssistant, callback
 from .aiovantage_diag import SysLogType, SystemLogReceived, subscribe_system_log
 from .config_entry import VantageDiagnosticsConfigEntry
 from .const import EVENT_SYSTEM_LOG, LOGGER
+from .helpers import enum_name
 from .ordered import OrderedWorker
 
 # Routine information, such as task and query completions, is too chatty to forward
@@ -83,7 +84,7 @@ def async_setup_system_log(
     async def fire(log: SystemLogReceived) -> None:
         payload: dict[str, object] = {
             "host": vantage.host,
-            "type": log_type_name(log.type),
+            "type": enum_name(SysLogType, log.type),
             "source": log.source,
             "message": log.message,
         }
@@ -123,14 +124,3 @@ def async_setup_system_log(
     entry.async_on_unload(
         subscribe_system_log(stream, on_system_log, peers=vantage.peers)
     )
-
-
-def log_type_name(log_type: int | None) -> str:
-    """Return the snake case name of a system log type, eg. "warning"."""
-    if log_type is None:
-        return "unknown"
-
-    try:
-        return SysLogType(log_type).name.lower()
-    except ValueError:
-        return f"unknown_{log_type}"

@@ -15,12 +15,14 @@ from pytest_homeassistant_custom_component.common import (
 from custom_components.vantage_diagnostics.aiovantage_diag import (
     SysLogType,
     SystemLogReceived,
+    TriggerType,
 )
 from custom_components.vantage_diagnostics.const import (
     DOMAIN,
     EVENT_SYSTEM_LOG,
     EVENT_TRIGGER,
 )
+from custom_components.vantage_diagnostics.helpers import enum_name
 from custom_components.vantage_diagnostics.logbook import async_describe_events
 from custom_components.vantage_diagnostics.system_log import (
     COMPILER_SOURCE,
@@ -28,9 +30,7 @@ from custom_components.vantage_diagnostics.system_log import (
     REPEAT_WINDOW,
     Shape,
     is_noise,
-    log_type_name,
 )
-from custom_components.vantage_diagnostics.triggers import trigger_type_name
 from homeassistant.components.logbook.const import (
     LOGBOOK_ENTRY_MESSAGE,
     LOGBOOK_ENTRY_NAME,
@@ -322,8 +322,8 @@ def test_system_log_burst_reminder() -> None:
 )
 def test_type_names(value: int | None, trigger_type: str, log_type: str) -> None:
     """Test naming trigger and system log types, known, unknown and missing."""
-    assert trigger_type_name(value) == trigger_type
-    assert log_type_name(value) == log_type
+    assert enum_name(TriggerType, value) == trigger_type
+    assert enum_name(SysLogType, value) == log_type
 
 
 async def test_path_stops_at_a_loop(

@@ -1,6 +1,7 @@
 """The Vantage Diagnostics integration, adding diagnostics to the stock Vantage one."""
 
 import asyncio
+from typing import Any
 
 from aiovantage import Vantage
 from aiovantage.command_client import EventStream
@@ -8,7 +9,7 @@ from aiovantage.errors import ClientError
 from aiovantage.events import Connected, Disconnected, ObjectUpdated, Reconnected
 from aiovantage.objects import Master
 
-from homeassistant.config_entries import ConfigEntry, ConfigEntryState
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     CONF_HOST,
     CONF_PASSWORD,
@@ -17,18 +18,24 @@ from homeassistant.const import (
     Platform,
 )
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.exceptions import ConfigEntryError, ConfigEntryNotReady
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.util.ssl import get_default_no_verify_context
 
-from .config_entry import VantageDiagnosticsConfigEntry, VantageDiagnosticsData
+from .config_entry import (
+    VantageDiagnosticsConfigEntry,
+    VantageDiagnosticsData,
+    stock_entry_loaded,
+)
 from .const import CONF_VANTAGE_ENTRY_ID, DOMAIN, LOGGER, VANTAGE_DOMAIN
 from .diagnostic_services import async_register_diagnostic_services
+from .helpers import error_text
 from .module_status import ModuleStatusCoordinator
 from .module_status_service import async_register_module_status_service
 from .names import ObjectNames
+from .rpc import SharedRpc
 from .system_log import async_setup_system_log
 from .triggers import async_setup_triggers
 
@@ -52,23 +59,25 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
 def _stock_client(
     hass: HomeAssistant, entry: VantageDiagnosticsConfigEntry
-) -> tuple[ConfigEntry[object], Vantage]:
+) -> tuple[ConfigEntry[Any], Vantage]:
     """Return the stock entry and the client it holds, once it is loaded."""
     vantage_entry = hass.config_entries.async_get_entry(
         entry.data[CONF_VANTAGE_ENTRY_ID]
     )
-    runtime_data = getattr(vantage_entry, "runtime_data", None)
-    if (
-        vantage_entry is None
-        or vantage_entry.domain != VANTAGE_DOMAIN
-        or vantage_entry.state is not ConfigEntryState.LOADED
-        or runtime_data is None
-    ):
+
+    # Gone for good, so retrying would never succeed
+    if vantage_entry is None or vantage_entry.domain != VANTAGE_DOMAIN:
+        raise ConfigEntryError(
+            translation_domain=DOMAIN, translation_key="vantage_entry_removed"
+        )
+
+    # Exists, so it may yet load
+    if not stock_entry_loaded(vantage_entry):
         raise ConfigEntryNotReady(
             translation_domain=DOMAIN, translation_key="vantage_not_loaded"
         )
 
-    return vantage_entry, runtime_data.client
+    return vantage_entry, vantage_entry.runtime_data.client
 
 
 async def async_setup_entry(
@@ -85,20 +94,26 @@ async def async_setup_entry(
         ssl=vantage_entry.data.get(CONF_SSL, True),
         ssl_context_factory=get_default_no_verify_context,
     )
-    names = ObjectNames(hass, entry, client)
+    rpc = SharedRpc(
+        lambda: entry.runtime_data.stock_loaded(hass),
+    )
+    names = ObjectNames(hass, entry, client, rpc)
+
+    # Home Assistant runs the unload callbacks last in, first out, and also does so if setup fails.
+    # The order wanted is to stop new requests and await those sent, then shut down the coordinator, then stop the stream.
+    # So register the stream's stop first, and the requests' shutdown last.
+    entry.async_on_unload(stream.stop)
+    module_status = ModuleStatusCoordinator(hass, entry, client, names, rpc)
+    entry.async_on_unload(rpc.async_shutdown)
     entry.runtime_data = VantageDiagnosticsData(
         client=client,
         stream=stream,
         entry_id=entry.entry_id,
         vantage_entry_id=vantage_entry.entry_id,
         object_names=names,
-        module_status=ModuleStatusCoordinator(hass, entry, client, names),
+        rpc=rpc,
+        module_status=module_status,
     )
-
-    # Also stops lookups and the stream if setup fails, when Home Assistant runs the unload callbacks.
-    # Lookups stop first, so none reopens the client.
-    entry.async_on_unload(names.cancel)
-    entry.async_on_unload(stream.stop)
 
     # Reload when the stock entry reloads, since its client is replaced and closed
     reload_scheduled = False
@@ -106,11 +121,7 @@ async def async_setup_entry(
     @callback
     def on_stock_state_change() -> None:
         nonlocal reload_scheduled
-        runtime_data = getattr(vantage_entry, "runtime_data", None)
-        if (
-            vantage_entry.state is ConfigEntryState.LOADED
-            and getattr(runtime_data, "client", None) is client
-        ):
+        if stock_entry_loaded(vantage_entry, client):
             return
 
         if not reload_scheduled:
@@ -126,7 +137,7 @@ async def async_setup_entry(
         raise ConfigEntryNotReady(
             translation_domain=DOMAIN,
             translation_key="connection_failed",
-            translation_placeholders={"error": str(err) or type(err).__name__},
+            translation_placeholders={"error": error_text(err)},
         ) from err
 
     # Both are only streamed through the enhanced log
@@ -169,6 +180,6 @@ async def async_unload_entry(
     hass: HomeAssistant, entry: VantageDiagnosticsConfigEntry
 ) -> bool:
     """Unload a config entry."""
-    # The platforms first, so nothing polls once the stream is closed.
-    # The unload callbacks then close the stream and stop the name lookups.
+    # The platforms first, so no sensor listens and nothing polls.
+    # The unload callbacks then shut down the requests and the coordinator, and stop the stream.
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)

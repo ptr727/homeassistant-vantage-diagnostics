@@ -1,6 +1,7 @@
 """Vantage Diagnostics config entry."""
 
 from dataclasses import dataclass
+from typing import Any
 
 from aiovantage import Vantage
 from aiovantage.command_client import EventStream
@@ -11,8 +12,20 @@ from homeassistant.core import HomeAssistant
 from .const import DOMAIN
 from .module_status import ModuleStatusCoordinator
 from .names import ObjectNames
+from .rpc import SharedRpc
 
 type VantageDiagnosticsConfigEntry = ConfigEntry[VantageDiagnosticsData]
+
+
+def stock_entry_loaded(
+    entry: ConfigEntry[Any] | None, client: Vantage | None = None
+) -> bool:
+    """Return whether the stock entry is loaded, and holds the given client if one is given."""
+    if entry is None or entry.state is not ConfigEntryState.LOADED:
+        return False
+
+    held = getattr(getattr(entry, "runtime_data", None), "client", None)
+    return held is not None and (client is None or held is client)
 
 
 @dataclass
@@ -32,6 +45,7 @@ class VantageDiagnosticsData:
     """The ID of the stock config entry this one follows."""
 
     object_names: ObjectNames
+    rpc: SharedRpc
     module_status: ModuleStatusCoordinator
     connected: bool = True
 
@@ -42,10 +56,6 @@ class VantageDiagnosticsData:
 
     def stock_loaded(self, hass: HomeAssistant) -> bool:
         """Return whether the stock entry is loaded and still holds our client."""
-        entry = hass.config_entries.async_get_entry(self.vantage_entry_id)
-        if entry is None or entry.state is not ConfigEntryState.LOADED:
-            return False
-
-        return getattr(getattr(entry, "runtime_data", None), "client", None) is (
-            self.client
+        return stock_entry_loaded(
+            hass.config_entries.async_get_entry(self.vantage_entry_id), self.client
         )

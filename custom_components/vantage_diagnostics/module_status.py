@@ -3,6 +3,7 @@
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import timedelta
+from functools import partial
 import time
 from typing import Any, override
 
@@ -18,7 +19,9 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 from .aiovantage_diag import DiagnosticInterface, ModuleInfo
 from .const import DOMAIN, LOGGER, UNLOADED
+from .helpers import error_text
 from .names import ObjectNames
+from .rpc import SharedRpc
 
 # Polled as a fallback while a sensor listens, "Module Offline/Online" system logs trigger a refresh at once
 MODULE_STATUS_INTERVAL = timedelta(seconds=60)
@@ -73,7 +76,9 @@ def enclosure_vid(module: SystemObject) -> int | None:
     return getattr(getattr(module, "parent", None), "vid", None)
 
 
-async def read_module_status(vantage: Vantage, names: ObjectNames) -> ModuleStatus:
+async def read_module_status(
+    vantage: Vantage, names: ObjectNames, rpc: SharedRpc
+) -> ModuleStatus:
     """Read the modules responding on the bus of each enclosure holding modules."""
     # Each enclosure is addressed by its position on its master
     enclosures: dict[int, int] = {}
@@ -85,9 +90,9 @@ async def read_module_status(vantage: Vantage, names: ObjectNames) -> ModuleStat
     for vid, master in enclosures.items():
         number = (await names.info(vid)).position
 
-        # The entry was unloaded mid-read, so don't reopen its closed client.
-        # Checked after the lookup, which unload can land in or cancel, and right before the read.
-        if names.closed:
+        # The stock integration, which owns the client, may have unloaded mid-read.
+        # Checked after the lookup, which an unload can land in, and right before the read.
+        if not rpc.usable:
             status.failed[vid] = UNLOADED
             continue
 
@@ -99,15 +104,18 @@ async def read_module_status(vantage: Vantage, names: ObjectNames) -> ModuleStat
         # Read each enclosure separately, so one failure doesn't hide the others
         address = None if master == vantage.master_number else master
         try:
-            found = await DiagnosticInterface.get_modules(
-                vantage.config_client, number, master=address
+            found = await rpc.run(
+                partial(
+                    DiagnosticInterface.get_modules,
+                    vantage.config_client,
+                    number,
+                    master=address,
+                )
             )
         except Exception as err:  # noqa: BLE001
             # Not a ClientError, since aiovantage can also raise decode or XML errors
             LOGGER.debug("Failed to read modules in enclosure %d: %s", vid, err)
-            status.failed[vid] = (
-                UNLOADED if names.closed else str(err) or type(err).__name__
-            )
+            status.failed[vid] = UNLOADED if not rpc.usable else error_text(err)
             continue
 
         status.enclosures.add(vid)
@@ -129,6 +137,7 @@ class ModuleStatusCoordinator(DataUpdateCoordinator[ModuleStatus]):
         entry: ConfigEntry[Any],
         vantage: Vantage,
         names: ObjectNames,
+        rpc: SharedRpc,
     ) -> None:
         """Initialize the coordinator."""
         super().__init__(
@@ -144,6 +153,7 @@ class ModuleStatusCoordinator(DataUpdateCoordinator[ModuleStatus]):
         self._entry = entry
         self._vantage = vantage
         self._names = names
+        self._rpc = rpc
 
         # No bus read yet, so every module's connectivity is unknown
         self.data = ModuleStatus()
@@ -257,17 +267,17 @@ class ModuleStatusCoordinator(DataUpdateCoordinator[ModuleStatus]):
     async def _async_update_data(self) -> ModuleStatus:
         started = time.monotonic()
         try:
-            status = await read_module_status(self._vantage, self._names)
+            status = await read_module_status(self._vantage, self._names, self._rpc)
         except ClientError as err:
             raise UpdateFailed(
                 translation_domain=DOMAIN,
                 translation_key="module_status_failed",
-                translation_placeholders={"error": str(err)},
+                translation_placeholders={"error": error_text(err)},
             ) from err
 
         # Fail the update when no enclosure could be read at all.
         # Not when the entry was unloaded mid-read, which is no failure worth an error.
-        if status.failed and not status.enclosures and not self._names.closed:
+        if status.failed and not status.enclosures and self._rpc.usable:
             raise UpdateFailed(
                 translation_domain=DOMAIN,
                 translation_key="no_enclosure_read",

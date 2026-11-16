@@ -1,12 +1,8 @@
 """Config flow for the Vantage Diagnostics integration."""
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-# Type check against probatio, which Home Assistant 2026.9.0 and later load as voluptuous
-if TYPE_CHECKING:
-    import probatio as vol
-else:
-    import voluptuous as vol
+import probatio as vol
 
 from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult
 from homeassistant.helpers.selector import (

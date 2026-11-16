@@ -111,7 +111,7 @@ async def test_lookup_after_close(
 ) -> None:
     """Test that nothing is looked up once the names are closed."""
     names = init_integration.runtime_data.object_names
-    names.cancel()
+    init_integration.runtime_data.rpc.close()
 
     assert await names.name(70) == "VID 70"
     enclosure_lookup.assert_not_awaited()
@@ -151,17 +151,22 @@ async def test_unload_cancels_pending_lookup(
     """Test that a caller waiting on a lookup the unload cancels gets the VID."""
     names = init_integration.runtime_data.object_names
 
-    async def lookup_forever(*args: Any) -> list[Any]:
-        await asyncio.Event().wait()
+    release = asyncio.Event()
+
+    async def lookup_until_released(*args: Any) -> list[Any]:
+        await release.wait()
         return []
 
-    enclosure_lookup.side_effect = lookup_forever
+    enclosure_lookup.side_effect = lookup_until_released
     waiting = asyncio.ensure_future(names.name(70))
     await asyncio.sleep(0)
 
     names.cancel()
 
     assert await waiting == "VID 70"
+
+    # The request itself is never cancelled, so it ends only once released
+    release.set()
 
 
 async def test_typed_object_without_name(

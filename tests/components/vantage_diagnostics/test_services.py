@@ -238,10 +238,10 @@ async def test_unload_during_read_reports_masters_not_read(
     hass: HomeAssistant, init_integration: MockConfigEntry
 ) -> None:
     """Test that the masters not yet read when the entry unloads are reported."""
-    names = init_integration.runtime_data.object_names
+    rpc = init_integration.runtime_data.rpc
 
     async def unload_during_read(client: Any, master: int | None = None) -> list[Any]:
-        names.cancel()
+        rpc.close()
         return []
 
     with (
@@ -262,10 +262,10 @@ async def test_unload_during_system_log_read(
     hass: HomeAssistant, init_integration: MockConfigEntry
 ) -> None:
     """Test that the system log service reports masters not read after an unload."""
-    names = init_integration.runtime_data.object_names
+    rpc = init_integration.runtime_data.rpc
 
     async def unload_during_read(client: Any, master: int | None = None) -> list[Any]:
-        names.cancel()
+        rpc.close()
         return []
 
     with (

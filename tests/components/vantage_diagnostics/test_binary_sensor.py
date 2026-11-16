@@ -47,11 +47,17 @@ from .conftest import (
 ONLINE = [ModuleInfo(address=1, vid=MODULE_VID, errors=0)]
 
 
+def unique_id_to_entity_id(hass: HomeAssistant, vid: int) -> str | None:
+    """Return the entity ID for a module's unique ID, which names the stock entry."""
+    stock = hass.config_entries.async_entries("vantage")[0]
+    return er.async_get(hass).async_get_entity_id(
+        "binary_sensor", DOMAIN, f"{stock.entry_id}:{vid}:connectivity"
+    )
+
+
 def sensor_id(hass: HomeAssistant, vid: int = MODULE_VID) -> str:
     """Return the entity ID of a module's connectivity sensor."""
-    entity_id = er.async_get(hass).async_get_entity_id(
-        "binary_sensor", DOMAIN, f"{vid}:connectivity"
-    )
+    entity_id = unique_id_to_entity_id(hass, vid)
     assert entity_id
     return entity_id
 
@@ -350,7 +356,7 @@ async def test_entity_joins_the_stock_device(
     entity = er.async_get(hass).async_get("binary_sensor.module_1_connectivity")
     assert entity
     assert entity.device_id == device.id
-    assert entity.unique_id == f"{MODULE_VID}:connectivity"
+    assert entity.unique_id == f"{vantage_entry.entry_id}:{MODULE_VID}:connectivity"
     assert sensor_id(hass) == "binary_sensor.module_1_connectivity"
     devices = [
         d for d in dev_reg.devices if ("vantage", str(MODULE_VID)) in d.identifiers
@@ -367,12 +373,7 @@ async def test_module_without_stock_device_gets_no_entity(
     client.modules.fire(ObjectAdded(obj=make_module(104, "Module 4")))
     await hass.async_block_till_done()
 
-    assert (
-        er.async_get(hass).async_get_entity_id(
-            "binary_sensor", DOMAIN, "104:connectivity"
-        )
-        is None
-    )
+    assert unique_id_to_entity_id(hass, 104) is None
     assert not [
         d for d in dr.async_get(hass).devices if ("vantage", "104") in d.identifiers
     ]
@@ -394,9 +395,7 @@ async def test_module_added_later(
     client.modules.fire(ObjectAdded(obj=module))
     await hass.async_block_till_done()
 
-    assert er.async_get(hass).async_get_entity_id(
-        "binary_sensor", DOMAIN, "103:connectivity"
-    )
+    assert unique_id_to_entity_id(hass, 103)
 
 
 @pytest.mark.usefixtures("init_integration")
@@ -421,7 +420,7 @@ async def test_unload_during_refresh_is_no_failure(
 ) -> None:
     """Test that a refresh the unload interrupts doesn't fail or log an error."""
     coordinator = init_integration.runtime_data.module_status
-    init_integration.runtime_data.object_names.cancel()
+    init_integration.runtime_data.rpc.close()
 
     await refresh(
         hass, init_integration, ModuleStatus(failed={ENCLOSURE_VID: UNLOADED})
@@ -439,7 +438,7 @@ async def test_read_status_unload_after_lookup(
     enclosure = enclosure_lookup.return_value
 
     async def unload_during_lookup(*args: Any) -> list[Any]:
-        runtime_data.object_names.cancel()
+        runtime_data.rpc.close()
         return enclosure
 
     enclosure_lookup.side_effect = unload_during_lookup
@@ -448,7 +447,7 @@ async def test_read_status_unload_after_lookup(
         "custom_components.vantage_diagnostics.module_status.DiagnosticInterface.get_modules"
     ) as get_modules:
         status = await read_module_status(
-            runtime_data.client, runtime_data.object_names
+            runtime_data.client, runtime_data.object_names, runtime_data.rpc
         )
 
     get_modules.assert_not_awaited()
@@ -458,22 +457,28 @@ async def test_read_status_unload_after_lookup(
 async def test_read_status_lookup_cancelled(
     init_integration: MockConfigEntry, enclosure_lookup: AsyncMock
 ) -> None:
-    """Test that an enclosure whose lookup the unload cancelled is reported unloaded."""
+    """Test that an enclosure whose lookup is in flight at unload is reported unloaded."""
     runtime_data = init_integration.runtime_data
     looking_up = asyncio.Event()
+    release = asyncio.Event()
 
-    async def lookup_forever(*args: Any) -> list[Any]:
+    async def lookup_until_released(*args: Any) -> list[Any]:
         looking_up.set()
-        await asyncio.Event().wait()
+        await release.wait()
         return []
 
-    enclosure_lookup.side_effect = lookup_forever
+    enclosure_lookup.side_effect = lookup_until_released
     runtime_data.object_names._cache.clear()  # noqa: SLF001
     read = asyncio.ensure_future(
-        read_module_status(runtime_data.client, runtime_data.object_names)
+        read_module_status(
+            runtime_data.client, runtime_data.object_names, runtime_data.rpc
+        )
     )
     await looking_up.wait()
-    runtime_data.object_names.cancel()
+    runtime_data.rpc.close()
+
+    # The lookup already sent is not cancelled, so the read waits for it, then stops
+    release.set()
     status = await read
 
     assert status.failed == {ENCLOSURE_VID: UNLOADED}
@@ -484,7 +489,7 @@ async def test_read_status_interrupted(init_integration: MockConfigEntry) -> Non
     runtime_data = init_integration.runtime_data
 
     async def unload_during_read(*args: Any, **kwargs: Any) -> list[Any]:
-        runtime_data.object_names.cancel()
+        runtime_data.rpc.close()
         raise ClientConnectionError
 
     with patch(
@@ -492,7 +497,7 @@ async def test_read_status_interrupted(init_integration: MockConfigEntry) -> Non
         side_effect=unload_during_read,
     ):
         status = await read_module_status(
-            runtime_data.client, runtime_data.object_names
+            runtime_data.client, runtime_data.object_names, runtime_data.rpc
         )
 
     assert status.failed == {ENCLOSURE_VID: UNLOADED}
@@ -510,7 +515,9 @@ async def test_read_status_enclosure_without_position(
     ]
     runtime_data.object_names.clear()
 
-    status = await read_module_status(runtime_data.client, runtime_data.object_names)
+    status = await read_module_status(
+        runtime_data.client, runtime_data.object_names, runtime_data.rpc
+    )
 
     assert status.failed == {ENCLOSURE_VID: "Enclosure position could not be read"}
 
@@ -522,7 +529,9 @@ async def test_read_status_peer_master_is_addressed(
     runtime_data = init_integration.runtime_data
     runtime_data.client.modules.objects[0].master = 2
 
-    status = await read_module_status(runtime_data.client, runtime_data.object_names)
+    status = await read_module_status(
+        runtime_data.client, runtime_data.object_names, runtime_data.rpc
+    )
 
     assert modules_read.await_args_list[-1].kwargs == {"master": 2}
     assert status.enclosures == {ENCLOSURE_VID}

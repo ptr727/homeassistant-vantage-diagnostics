@@ -69,7 +69,7 @@ rules:
     comment: The only setting is the stock entry followed, which a user changes by adding a new entry.
   repair-issues:
     status: exempt
-    comment: The integration has no issues a user can fix through a repair.
+    comment: A removed stock entry fails setup with a translated error that says to delete and re-add this entry, so no repair issue is raised.
   stale-devices:
     status: exempt
     comment: The devices belong to the stock integration, which removes them.

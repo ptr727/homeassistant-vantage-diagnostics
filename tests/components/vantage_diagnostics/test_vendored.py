@@ -1,6 +1,5 @@
 """Tests for the vendored aiovantage diagnostic protocol code."""
 
-import importlib
 from unittest.mock import AsyncMock, MagicMock
 
 from aiovantage.events import EnhancedLogReceived
@@ -134,39 +133,8 @@ async def test_interface_calls() -> None:
     assert await DiagnosticInterface.get_event_log_next(client, 5) is None
 
 
-def test_package_prefers_aiovantage_when_it_has_the_code(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Test that the package uses aiovantage's copies once it releases them."""
-    from aiovantage import config_client  # noqa: PLC0415
-    import aiovantage.events as aiovantage_events  # noqa: PLC0415
-
-    upstream = type("Upstream", (), {})
-    for name in (
-        "DiagnosticInterface",
-        "EventLogEntry",
-        "ModuleInfo",
-        "SysLogEntry",
-        "SysLogType",
-        "TriggerType",
-    ):
-        monkeypatch.setattr(config_client, name, upstream, raising=False)
-    for name in ("SystemLogReceived", "TriggerReceived"):
-        monkeypatch.setattr(aiovantage_events, name, upstream, raising=False)
-
-    try:
-        reloaded = importlib.reload(aiovantage_diag)
-        assert reloaded.DiagnosticInterface is upstream
-        assert reloaded.SysLogType is upstream
-        assert reloaded.TriggerReceived is upstream
-        assert reloaded.subscribe_triggers is events.subscribe_triggers
-    finally:
-        monkeypatch.undo()
-        importlib.reload(aiovantage_diag)
-
-
-def test_package_falls_back_to_the_vendored_code() -> None:
-    """Test that, with aiovantage lacking the code, the vendored copies are used."""
+def test_package_exports_the_vendored_code() -> None:
+    """Test that the package always exports the vendored copies."""
     assert aiovantage_diag.DiagnosticInterface is diagnostic.DiagnosticInterface
     assert aiovantage_diag.TriggerReceived is events.TriggerReceived
     assert aiovantage_diag.SysLogType is SysLogType

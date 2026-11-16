@@ -48,8 +48,24 @@ async def test_entry_without_vantage_entry(
 
     assert not await hass.config_entries.async_setup(entry.entry_id)
 
-    assert entry.state is ConfigEntryState.SETUP_RETRY
-    assert entry.reason == "The Vantage InFusion integration is not loaded"
+    assert entry.state is ConfigEntryState.SETUP_ERROR
+    assert "delete this entry and add it again" in (entry.reason or "")
+
+
+async def test_entry_whose_vantage_entry_was_deleted(
+    hass: HomeAssistant, vantage_entry: MockConfigEntry
+) -> None:
+    """Test that a deleted stock entry is an error, not a retry that never succeeds."""
+    entry = MockConfigEntry(
+        domain=DOMAIN, data={CONF_VANTAGE_ENTRY_ID: vantage_entry.entry_id}
+    )
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_remove(vantage_entry.entry_id)
+
+    assert not await hass.config_entries.async_setup(entry.entry_id)
+
+    assert entry.state is ConfigEntryState.SETUP_ERROR
+    assert "delete this entry and add it again" in (entry.reason or "")
 
 
 async def test_entry_with_vantage_entry_not_loaded(
@@ -152,14 +168,14 @@ async def test_unload_closes_stream(
 ) -> None:
     """Test that an unload closes the stream and drops the subscriptions."""
     stream = fake_stream.instances[0]
-    names = init_integration.runtime_data.object_names
+    rpc = init_integration.runtime_data.rpc
 
     assert await hass.config_entries.async_unload(init_integration.entry_id)
 
     assert init_integration.state is ConfigEntryState.NOT_LOADED
     stream.stop.assert_called_once()
     assert stream.unsubscribe.call_count >= 2
-    assert names.closed
+    assert not rpc.usable
 
 
 async def test_stock_entry_reload_reloads_ours(

@@ -1,13 +1,6 @@
 """The service that reads which modules respond on each enclosure bus."""
 
-from typing import TYPE_CHECKING
-
-# Type check against probatio, which Home Assistant 2026.9.0 and later load as voluptuous
-# TODO: Import probatio directly once hacs.json requires Home Assistant 2026.9.0
-if TYPE_CHECKING:
-    import probatio as vol
-else:
-    import voluptuous as vol
+import probatio as vol
 
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.util.json import JsonValueType
@@ -22,7 +15,10 @@ async def _read_module_status(
     entry: VantageDiagnosticsConfigEntry, call: ServiceCall, errors: list[ReadError]
 ) -> list[JsonValueType]:
     vantage = entry.runtime_data.client
-    status = await read_module_status(vantage, entry.runtime_data.object_names)
+    runtime_data = entry.runtime_data
+    status = await read_module_status(
+        vantage, runtime_data.object_names, runtime_data.rpc
+    )
     errors.extend(
         {"host": vantage.host, "enclosure": vid, "error": error}
         for vid, error in status.failed.items()

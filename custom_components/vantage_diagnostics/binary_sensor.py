@@ -82,7 +82,9 @@ class VantageModuleConnectivityEntity(
         super().__init__(entry.runtime_data.module_status)
         self._entry = entry
         self.obj = obj
-        self._attr_unique_id = f"{obj.vid}:connectivity"
+        self._attr_unique_id = (
+            f"{entry.runtime_data.vantage_entry_id}:{obj.vid}:connectivity"
+        )
 
         # Home Assistant links the entity to this device, which another integration owns
         self.device_entry = device

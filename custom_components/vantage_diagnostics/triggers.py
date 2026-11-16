@@ -7,19 +7,9 @@ from homeassistant.core import HomeAssistant, callback
 from .aiovantage_diag import TriggerReceived, TriggerType, subscribe_triggers
 from .config_entry import VantageDiagnosticsConfigEntry
 from .const import EVENT_TRIGGER
+from .helpers import enum_name
 from .names import ObjectNames
 from .ordered import OrderedWorker
-
-
-def trigger_type_name(event: int | None) -> str:
-    """Return the snake case name of a trigger type, eg. "out_of_range"."""
-    if event is None:
-        return "unknown"
-
-    try:
-        return TriggerType(event).name.lower()
-    except ValueError:
-        return f"unknown_{event}"
 
 
 async def describe_trigger(
@@ -33,7 +23,7 @@ async def describe_trigger(
     """Build the event payload, and service response entry, for a trigger."""
     source_path = await names.path(source)
     return {
-        "trigger_type": trigger_type_name(event),
+        "trigger_type": enum_name(TriggerType, event),
         "event": event,
         "source_id": source,
         "source_name": source_path[0] if source_path else f"VID {source}",
