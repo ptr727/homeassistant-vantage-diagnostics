@@ -1,0 +1,298 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        // Python language group.
+        // Every command-executing task is `type: process`, as in the .NET snippet.
+        // The aggregators are dependsOn-only.
+        // The command runs directly rather than through a shell, which avoids `&&` and `;` chaining.
+        // That chaining is not portable, since Windows PowerShell 5.1 rejects `&&` and is still the default
+        // VS Code task shell on many setups.
+        // Sequencing is expressed with `dependsOrder: sequence` and `dependsOn`, never shell operators.
+        //
+        // The first tasks are the Python clean-compile set, per the python-codestyle Skill "Local development loop":
+        // `ruff format`, then `ruff check`, then the type checker.
+        // A repo whose CI type checker is mypy, with pyright editor-only, swaps "Python Types" to
+        // `uv run mypy`.
+        // A pyright-strict repo keeps `uv run pyright`.
+        // A subdirectory listed in CI's `python-directories` input adapts "Python Types" to a command.
+        // That command is the one the hub's `validate-task.yml` "Type check Python step" runs for that directory, at the commit this repository's caller workflow pins.
+        // A build-profile directory in its pip form, a `requirements*.txt` with no `uv.lock`, keeps every task here, "Python Test" included.
+        // It runs no `uv sync` and no project-scoped `uv run`, since either writes a `uv.lock`.
+        // It replaces "uv Sync" with a `dependsOrder: sequence` aggregator whose first step is `uv venv --clear`.
+        // The aggregator then runs one `uv pip install --python .venv/bin/python` (`.venv\Scripts\python.exe` on Windows) taking every `requirements*.txt` as a `-r` argument.
+        // It ends with `uv pip install --python .venv/bin/python -e .` where the directory's pyproject.toml has a [project] table.
+        // The directory also adapts or drops "uv Upgrade", which runs `uv sync` too.
+        // A pip-form directory declared in the validator's `python-directories` input runs ruff as `.venv/bin/python -m ruff` (`.venv\Scripts\python.exe` on Windows) where its environment installs ruff, matching CI.
+        // Any other pip-form directory runs ruff as `uvx ruff@latest`.
+        // Every pip-form directory runs pytest as `.venv/bin/python -m pytest` (`.venv\Scripts\python.exe` on Windows), and the type checker against `.venv`, per the python-codestyle Skill "Local development loop".
+        // A lint-only Scripts-profile subtree, with no [project], no [build-system], no `uv.lock`, and no `requirements*.txt`, runs every tool via `uvx <tool>` rather than `uv run <tool>`.
+        // The type-checker swap composes with it: `uvx mypy@latest` for a mypy repo, `uvx pyright@latest` otherwise.
+        // It omits "uv Sync" and "uv Upgrade", and "Python Test" runs the unittest command the repository's OPERATIONS.md gives rather than pytest, per the python-codestyle Skill "Two profiles".
+        {
+            "label": "ruff format",
+            "type": "process",
+            "command": ".venv/bin/python",
+            "args": [
+                "-m",
+                "ruff",
+                "format"
+            ],
+            "problemMatcher": [],
+            "presentation": {
+                "showReuseMessage": false,
+                "clear": false
+            }
+        },
+        {
+            "label": "ruff check",
+            "type": "process",
+            "command": ".venv/bin/python",
+            "args": [
+                "-m",
+                "ruff",
+                "check"
+            ],
+            "problemMatcher": [],
+            "presentation": {
+                "showReuseMessage": false,
+                "clear": false
+            }
+        },
+        {
+            "label": "Python Types",
+            "type": "process",
+            "command": ".venv/bin/python",
+            "args": [
+                "-m",
+                "mypy"
+            ],
+            "problemMatcher": [],
+            "presentation": {
+                "showReuseMessage": false,
+                "clear": false
+            }
+        },
+        {
+            "label": "Pyright",
+            "type": "process",
+            "command": ".venv/bin/python",
+            "args": [
+                "-m",
+                "pyright",
+                "--pythonpath",
+                ".venv/bin/python"
+            ],
+            "problemMatcher": [],
+            "presentation": {
+                "showReuseMessage": false,
+                "clear": false
+            }
+        },
+        {
+            // The clean-compile aggregator formats in place, then lints, then type-checks, in order.
+            // No shell chaining is involved.
+            // It is named "Format" rather than "Verify" because it mutates, like the sibling ".NET Format".
+            "label": "Python Format",
+            "dependsOrder": "sequence",
+            "dependsOn": [
+                "ruff format",
+                "ruff check",
+                "Python Types",
+                "Pyright"
+            ],
+            "group": { "kind": "build", "isDefault": true },
+            "problemMatcher": []
+        },
+        {
+            "label": "Python Test",
+            "type": "process",
+            "command": ".venv/bin/python",
+            "args": [
+                "-m",
+                "pytest"
+            ],
+            "group": { "kind": "test", "isDefault": true },
+            "problemMatcher": [],
+            "presentation": {
+                "showReuseMessage": false,
+                "clear": false
+            }
+        },
+        // Convenience / project-specific tasks (adapt or drop per repo).
+        {
+            "label": "uv Venv",
+            "type": "process",
+            "command": "uv",
+            "args": [
+                "venv",
+                "--python",
+                "3.14",
+                "--clear"
+            ],
+            "problemMatcher": [],
+            "presentation": {
+                "showReuseMessage": false,
+                "clear": false
+            }
+        },
+        {
+            "label": "uv Install",
+            "type": "process",
+            "command": "uv",
+            "args": [
+                "pip",
+                "install",
+                "--python",
+                ".venv/bin/python",
+                "-r",
+                "requirements.txt",
+                "-r",
+                "requirements-test.txt"
+            ],
+            "problemMatcher": [],
+            "presentation": {
+                "showReuseMessage": false,
+                "clear": false
+            }
+        },
+        {
+            // The pip-form environment aggregator, since a project-scoped uv sync would write a uv.lock.
+            "label": "uv Sync",
+            "dependsOrder": "sequence",
+            "dependsOn": [
+                "uv Venv",
+                "uv Install"
+            ],
+            "problemMatcher": []
+        },
+        // Home Assistant dev loop, backed by the scripts directory.
+        {
+            "label": "Setup: Install dev requirements",
+            "type": "process",
+            "command": "scripts/setup",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            }
+        },
+        {
+            "label": "HA: ensure config",
+            "type": "process",
+            "command": "scripts/init-config",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "silent",
+                "panel": "shared"
+            }
+        },
+        {
+            "label": "HA: run Home Assistant",
+            "type": "process",
+            "command": "scripts/develop",
+            "isBackground": true,
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            }
+        },
+        {
+            "label": "HA: lint",
+            "type": "process",
+            "command": "scripts/lint",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            }
+        },
+        // Lint group, run on demand.
+        // The EditorConfig, Workflows, Markdown, and Spelling tasks go through the hub's scripts/docker_lint.py, fetched by hub_fetch_run.py.
+        // Each container therefore sees a read-only snapshot of the tracked and unignored files, with no network.
+        // It mirrors the CI lint gate.
+        // Broad live spell-checking is the cspell extension's job.
+        // Pre-commit already runs the prose gate diff-scoped and the EOL gate over the whole tree.
+        // Lint: Prose below adds the prose gate in whole-repo mode, and Lint: EOL runs the hook's own EOL check on demand.
+        // Every Lint task is language-agnostic, the same check as in the .NET snippet's Lint group.
+        {
+            "label": "Lint: EditorConfig",
+            "type": "process",
+            "command": "uv",
+            "args": [ "run", "--no-project", "python", "${workspaceFolder}/hub_fetch_run.py", "scripts/docker_lint.py", "--linter", "editorconfig-checker" ],
+            "problemMatcher": [],
+            "presentation": {
+                "showReuseMessage": false,
+                "clear": false
+            }
+        },
+        {
+            "label": "Lint: Workflows",
+            "type": "process",
+            "command": "uv",
+            "args": [ "run", "--no-project", "python", "${workspaceFolder}/hub_fetch_run.py", "scripts/docker_lint.py", "--linter", "actionlint" ],
+            "problemMatcher": [],
+            "presentation": {
+                "showReuseMessage": false,
+                "clear": false
+            }
+        },
+        {
+            "label": "Lint: Markdown",
+            "type": "process",
+            "command": "uv",
+            "args": [ "run", "--no-project", "python", "${workspaceFolder}/hub_fetch_run.py", "scripts/docker_lint.py", "--linter", "markdownlint" ],
+            "problemMatcher": [],
+            "presentation": {
+                "showReuseMessage": false,
+                "clear": false
+            }
+        },
+        {
+            "label": "Lint: Spelling",
+            "type": "process",
+            "command": "uv",
+            "args": [ "run", "--no-project", "python", "${workspaceFolder}/hub_fetch_run.py", "scripts/docker_lint.py", "--linter", "cspell" ],
+            "problemMatcher": [],
+            "presentation": {
+                "showReuseMessage": false,
+                "clear": false
+            }
+        },
+        {
+            "label": "Lint: Prose",
+            "type": "process",
+            "command": "uv",
+            "args": [ "run", "--no-project", "python", "${workspaceFolder}/hub_fetch_run.py", ".github/actions/prose-gate/prose_lint.py", "." ],
+            "problemMatcher": [],
+            "presentation": {
+                "showReuseMessage": false,
+                "clear": false
+            }
+        },
+        {
+            "label": "Lint: EOL",
+            "type": "process",
+            "command": "uv",
+            "args": [ "run", "--no-project", "python", "${workspaceFolder}/hub_fetch_run.py", ".github/actions/repo-gate/repo_gate.py", "--check", "eol" ],
+            "problemMatcher": [],
+            "presentation": {
+                "showReuseMessage": false,
+                "clear": false
+            }
+        },
+        {
+            "label": "Lint: All",
+            "dependsOrder": "sequence",
+            "dependsOn": [
+                "Lint: EditorConfig",
+                "Lint: Workflows",
+                "Lint: Markdown",
+                "Lint: Spelling",
+                "Lint: Prose",
+                "Lint: EOL"
+            ],
+            "problemMatcher": []
+        }
+    ]
+}

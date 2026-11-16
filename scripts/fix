@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Apply auto-fixes for ruff format and ruff check.
+# Run scripts/lint afterwards to verify that anything ruff could not auto-fix is also clean.
+
+set -Eeuo pipefail
+
+usage="Usage: scripts/fix [-h | --help]
+Apply ruff format and ruff check --fix. Run scripts/lint afterwards."
+if (($# > 0)); then
+    if (($# == 1)) && [[ "$1" == -h || "$1" == --help ]]; then
+        echo "$usage"
+        exit 0
+    fi
+    echo "Unexpected arguments: $*" >&2
+    echo "$usage" >&2
+    exit 2
+fi
+
+cd "$(dirname "$0")/.."
+
+# Activate the uv-managed .venv that scripts/setup creates, so the tools resolve.
+# This holds however the script runs, from a terminal or a VS Code task.
+if [[ ! -f .venv/bin/activate ]]; then
+    echo "No .venv found - run scripts/setup first." >&2
+    exit 1
+fi
+# shellcheck source=/dev/null
+source .venv/bin/activate
+
+ruff format .
+ruff check . --fix

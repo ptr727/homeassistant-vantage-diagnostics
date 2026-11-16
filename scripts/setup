@@ -1,0 +1,190 @@
+#!/usr/bin/env bash
+# Install dev requirements for this repo:
+#   1. Python base + test requirements (requirements.txt, requirements-test.txt).
+#   2. The home-assistant-frontend package HA's own manifest pins, pre-installed into .venv.
+#   3. The pre-commit hook for the local commit gate, enabled in the base clone only.
+#      The hook runner, pre-commit, is a user-level uv tool install.
+#   4. The markdownlint-cli2 tool pinned via npm.
+#      It is the same engine the VS Code davidanson.vscode-markdownlint extension uses.
+#      CLI verification therefore matches what the IDE shows.
+#      The devcontainer `node:2` feature provides Node.js itself.
+#      The install is global, through npm install -g.
+#   5. The actionlint binary pinned to ACTIONLINT_VERSION, SHA256-verified and installed into /usr/local/bin with sudo.
+#
+# The actionlint hash below is copied from the upstream checksums file when bumping.
+
+set -Eeuo pipefail
+
+usage="Usage: scripts/setup [-h | --help]
+Set up the dev environment: the .venv, the dev tools, and the host tools the dev loop needs.
+Some installs reach outside the checkout, including sudo installs into /usr/local/bin.
+The header comment of scripts/setup lists what it installs."
+if (($# > 0)); then
+    if (($# == 1)) && [[ "$1" == -h || "$1" == --help ]]; then
+        echo "$usage"
+        exit 0
+    fi
+    echo "Unexpected arguments: $*" >&2
+    echo "$usage" >&2
+    exit 2
+fi
+
+cd "$(dirname "$0")/.."
+
+# The dev toolchain is uv-managed.
+# Ensure uv is present, create the .venv, and install the pinned dependencies into it.
+# The requirements*.txt files stay the single source of truth.
+# CI installs the same files via pip because the HA-version matrix needs pip, so only the local dev environment uses uv.
+# In the devcontainer, the ghcr.io/devcontainers-extra/features/uv feature installs uv.
+# On a bare host, install it once from https://docs.astral.sh/uv/.
+# The script requires uv rather than fetching a remote install script, so there is no curl-to-shell and no pip into the system.
+if ! command -v uv >/dev/null 2>&1; then
+    echo "uv not found. In the devcontainer it comes from the uv feature; on a" >&2
+    echo "host, install it (https://docs.astral.sh/uv/) and re-run scripts/setup." >&2
+    exit 1
+fi
+
+# Create the venv only when a usable one is not already present.
+# The .venv volume mounts an empty directory on first container create, and a rebuilt container may already have a valid venv.
+# Recreate it when it is absent or built against a different Python minor.
+# The named volume persists across rebuilds, so a venv from an older base image would otherwise be reused silently.
+# The --clear flag keeps the step non-interactive, since uv otherwise prompts before replacing a venv and would hang the postCreate run.
+if [[ ! -x .venv/bin/python ]] ||
+    ! .venv/bin/python -c 'import sys; sys.exit(sys.version_info[:2] != (3, 14))' 2>/dev/null; then
+    uv venv --python 3.14 --clear
+fi
+# shellcheck source=/dev/null
+source .venv/bin/activate
+uv pip install --requirement requirements.txt
+uv pip install --requirement requirements-test.txt
+
+# Pre-install the frontend package HA expects.
+# HA otherwise installs it at runtime, which races the frontend component's setup and drops HA into recovery mode on first launch.
+# Pin to the version HA's own manifest declares.
+frontend_req="$(
+    python - <<'PY'
+import json, pathlib
+try:
+    import homeassistant.components.frontend as f
+    m = json.loads((pathlib.Path(f.__file__).parent / "manifest.json").read_text())
+    print(next((r for r in m.get("requirements", []) if r.startswith("home-assistant-frontend")), ""))
+except Exception:
+    pass
+PY
+)"
+if [[ -n "${frontend_req}" ]]; then
+    echo "Pre-installing ${frontend_req}"
+    uv pip install "${frontend_req}"
+fi
+
+# --- pre-commit hook --------------------------------------------------------
+# The commit gate in .pre-commit-config.yaml runs the tools in the .venv built above.
+# The hook runner, pre-commit, is a host tool installed with uv, never a project dependency.
+# A linked worktree shares the base clone's hooks directory, so only the base clone enables the hook.
+if ! inside_work_tree="$(LC_ALL=C git rev-parse --is-inside-work-tree 2>&1)"; then
+    if [[ "${inside_work_tree}" != *"not a git repository"* ]]; then
+        echo "${inside_work_tree}" >&2
+        exit 1
+    fi
+    echo "Not a git checkout; skipping the pre-commit hook." >&2
+else
+    # A commit inside the devcontainer runs the host's hook, which falls back to the pre-commit on PATH.
+    if ! command -v pre-commit >/dev/null 2>&1; then
+        uv tool install pre-commit
+    fi
+    if ! [[ "$(git rev-parse --git-dir)" -ef "$(git rev-parse --git-common-dir)" ]]; then
+        echo "Linked worktree; the base clone enables the pre-commit hook, skipping."
+    elif [[ -n "${REMOTE_CONTAINERS:-}" || -f /.dockerenv || -f /run/.containerenv ]]; then
+        echo "Inside a container: install the hook from the host for a bind-mounted checkout, or run pre-commit install here for a clone inside the container."
+    elif [[ -n "$(git config --get core.hooksPath || true)" ]]; then
+        echo "core.hooksPath is set, so pre-commit cannot install its hook; skipping." >&2
+    else
+        pre_commit="$(command -v pre-commit || echo "$(uv tool dir --bin)/pre-commit")"
+        "${pre_commit}" install
+    fi
+fi
+
+# --- markdownlint-cli2 ----------------------------------------------------
+# The binary is pinned and npm-installed, so CLI runs match the davidanson.vscode-markdownlint extension's output.
+# Node.js is supplied by the `ghcr.io/devcontainers/features/node:2` devcontainer feature.
+# When it is missing, as when running scripts/setup outside the devcontainer, the script skips this local install.
+# CI also lints markdown in the hub validate task's Lint sources job, so this only mirrors the IDE extension locally.
+MARKDOWNLINT_VERSION=0.22.1
+
+if command -v npm >/dev/null 2>&1; then
+    installed_markdownlint=""
+    if command -v markdownlint-cli2 >/dev/null 2>&1; then
+        installed_markdownlint="$(markdownlint-cli2 --version 2>/dev/null |
+            awk '{print $2}' | tr -d 'v')"
+    fi
+    if [[ "${installed_markdownlint}" = "${MARKDOWNLINT_VERSION}" ]]; then
+        echo "markdownlint-cli2 ${MARKDOWNLINT_VERSION} already installed, skipping."
+    else
+        echo "Installing markdownlint-cli2@${MARKDOWNLINT_VERSION} via npm"
+        npm install -g "markdownlint-cli2@${MARKDOWNLINT_VERSION}"
+        # Avoid piping to `head` here; Node 24 can raise EPIPE on closed stdout.
+        installed_markdownlint="$(markdownlint-cli2 --version 2>/dev/null)"
+        installed_markdownlint="${installed_markdownlint%%$'\n'*}"
+        echo "Installed: ${installed_markdownlint}"
+    fi
+else
+    echo "npm not available; skipping markdownlint-cli2 install. It is a CI-gated check - run it via its Docker image or in the devcontainer." >&2
+fi
+
+# --- actionlint -----------------------------------------------------------
+# The workflow linter, run as `actionlint -color` over the workflow files.
+# It is pinned with a per-architecture SHA256 from the upstream checksums file.
+ACTIONLINT_VERSION=1.7.7
+
+installed_actionlint="$(actionlint -version 2>/dev/null | head -n1 || true)"
+if [[ "${installed_actionlint}" = "${ACTIONLINT_VERSION}" ]]; then
+    echo "actionlint ${ACTIONLINT_VERSION} already installed, skipping."
+else
+    machine="$(uname -m)"
+    case "${machine}" in
+    x86_64)
+        arch=amd64
+        actionlint_sha=023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757
+        ;;
+    aarch64)
+        arch=arm64
+        actionlint_sha=401942f9c24ed71e4fe71b76c7d638f66d8633575c4016efd2977ce7c28317d0
+        ;;
+    armv7l)
+        arch=armv6
+        actionlint_sha=82e98d7252341b83fa557764824f225fa50431801b8e3d8e99f70dc1efc317b2
+        ;;
+    *)
+        echo "Unsupported architecture for actionlint: ${machine}" >&2
+        exit 1
+        ;;
+    esac
+    url="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_${arch}.tar.gz"
+    tmp=$(mktemp)
+    extract_dir=$(mktemp -d)
+    # The trap covers both the download tarball and the extract directory.
+    # A failure in tar, install, or the checksum check therefore leaks no temp directories.
+    trap 'rm -rf "$extract_dir"; rm -f "$tmp"' EXIT
+    echo "Downloading actionlint ${ACTIONLINT_VERSION} (${arch}) from ${url}"
+    curl -fsSL "${url}" -o "${tmp}"
+
+    actual_sha=$(sha256sum "${tmp}" | awk '{print $1}')
+    if [[ "${actual_sha}" != "${actionlint_sha}" ]]; then
+        echo "actionlint checksum mismatch!" >&2
+        echo "  expected: ${actionlint_sha}" >&2
+        echo "  actual:   ${actual_sha}" >&2
+        exit 1
+    fi
+    echo "Verified sha256 ${actionlint_sha}"
+
+    tar -xzf "${tmp}" -C "${extract_dir}" actionlint
+    sudo install -m 0755 "${extract_dir}/actionlint" /usr/local/bin/actionlint
+    # Explicit cleanup runs before the trap is disabled.
+    # An interruption (SIGINT) or a failed rm during this window then still falls back to the trap as a safety net.
+    # The trap is cleared only after both resources are gone.
+    rm -rf "${extract_dir}"
+    rm -f "${tmp}"
+    trap - EXIT
+    installed_actionlint="$(actionlint -version | head -n1)"
+    echo "Installed: actionlint ${installed_actionlint}"
+fi

@@ -1,0 +1,47 @@
+name: Install HA test leg dependencies
+description: Install one HA test matrix leg's Home Assistant and pytest harness over the base requirements.
+
+# The hub validate task's unit-test job calls this hook once per test-matrix leg.
+# It runs after the job installs requirements*.txt into .venv and before pytest runs without re-syncing.
+# The leg comes from the ha-test-matrix action, so its fields are the ones that action writes.
+# This integration declares no requirements of its own, so no library leg exists.
+# The aiovantage pin in requirements-test.txt stands in for the version the stock integration installs.
+
+inputs:
+  leg:
+    description: The matrix leg as a JSON object, with ha-version and pytest-hacc-version.
+    required: true
+  directories:
+    description: The resolved Python projects, one '<kind><TAB><directory>' line each. Only the root pip project is supported.
+    required: true
+
+runs:
+  using: composite
+  steps:
+
+    # The steps below install into the root .venv, so a later python-directories change must fail here rather than leave a project on the base pins.
+    - name: Check Python directories step
+      shell: bash
+      env:
+        DIRECTORIES: ${{ inputs.directories }}
+      run: |
+        set -Eeuo pipefail
+        projects=$(sed '/^[[:space:]]*$/d' <<<"$DIRECTORIES")
+        if [[ "$projects" != $'pip\t.' ]]; then
+          echo "::error::The install-test-deps hook supports only the root pip project, got: ${projects//$'\n'/, }"
+          exit 1
+        fi
+
+    # The requirements.txt file pins homeassistant to latest-stable for the devcontainer, so every leg reinstalls its own slot, minimum included.
+    - name: Install the leg's Home Assistant step
+      shell: bash
+      env:
+        LEG: ${{ inputs.leg }}
+      run: |
+        set -Eeuo pipefail
+        ha=$(jq -er '."ha-version"' <<<"$LEG")
+        hacc=$(jq -er '."pytest-hacc-version"' <<<"$LEG")
+        uv pip install --python .venv/bin/python \
+          "homeassistant==$ha" \
+          "pytest-homeassistant-custom-component==$hacc"
+        echo "Testing Home Assistant $ha with pytest-homeassistant-custom-component $hacc"

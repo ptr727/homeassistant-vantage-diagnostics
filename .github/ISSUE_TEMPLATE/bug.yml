@@ -1,0 +1,74 @@
+---
+name: "Bug report"
+description: "Report a bug with the integration."
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form **only for bug reports**. For feature requests or general
+        questions, use [Discussions](https://github.com/ptr727/homeassistant-vantage-diagnostics/discussions).
+
+        Search [existing issues](https://github.com/ptr727/homeassistant-vantage-diagnostics/issues?q=is%3Aissue+label%3Abug)
+        before opening a new one.
+
+  - type: textarea
+    attributes:
+      label: "Describe the bug"
+      description: "What happened, and what did you expect instead?"
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: "Reproduction steps"
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: "Debug logs"
+      description: |
+        Enable debug logging, reproduce the bug, then paste the logs here.
+
+        To enable debug logging, add this to `configuration.yaml` and restart Home Assistant:
+        ```yaml
+        logger:
+          default: warning
+          logs:
+            custom_components.vantage_diagnostics: debug
+            aiovantage: debug
+        ```
+        Or enable it from the UI: **Settings -> Devices & Services -> Vantage Diagnostics -> three-dot menu -> Enable debug logging**.
+        Logs are downloaded as a file when you disable debug logging from the same menu.
+
+        See [Home Assistant logger docs](https://www.home-assistant.io/integrations/logger/) for more.
+      render: text
+    validations:
+      required: true
+
+  - type: input
+    attributes:
+      label: "Integration version"
+      description: "Version from `manifest.json` or the Marketplace UI."
+      placeholder: "e.g. 0.1.0"
+    validations:
+      required: true
+
+  - type: input
+    attributes:
+      label: "Stock Vantage InFusion integration version"
+      description: "The version of the stock integration this one runs next to."
+    validations:
+      required: true
+
+  - type: input
+    attributes:
+      label: "Home Assistant version"
+      placeholder: "e.g. 2026.4.3"
+    validations:
+      required: true
