@@ -1,6 +1,7 @@
 """The Vantage Diagnostics integration, adding diagnostics to the stock Vantage one."""
 
 import asyncio
+from functools import partial
 from typing import Any
 
 from aiovantage import Vantage
@@ -27,6 +28,8 @@ from homeassistant.util.ssl import get_default_no_verify_context
 from .config_entry import (
     VantageDiagnosticsConfigEntry,
     VantageDiagnosticsData,
+    close_released_connection,
+    stock_client_usable,
     stock_entry_loaded,
 )
 from .const import CONF_VANTAGE_ENTRY_ID, DOMAIN, LOGGER, VANTAGE_DOMAIN
@@ -94,8 +97,11 @@ async def async_setup_entry(
         ssl=vantage_entry.data.get(CONF_SSL, True),
         ssl_context_factory=get_default_no_verify_context,
     )
+    # Bound to the stock entry and client found here rather than to this entry's runtime data.
+    # That data is gone after an unload, or holds a newer client once a later setup replaces it.
     rpc = SharedRpc(
-        lambda: entry.runtime_data.stock_loaded(hass),
+        partial(stock_client_usable, hass, vantage_entry.entry_id, client),
+        partial(close_released_connection, hass, vantage_entry.entry_id, client),
     )
     names = ObjectNames(hass, entry, client, rpc)
 

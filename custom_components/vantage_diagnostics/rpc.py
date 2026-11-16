@@ -20,9 +20,15 @@ class SharedRpc:
     So a request already sent always runs to its end, and only the wait for it is cancelled.
     """
 
-    def __init__(self, usable: Callable[[], bool]) -> None:
-        """Initialize the runner, given whether the stock client may still be used."""
+    def __init__(
+        self, usable: Callable[[], bool], close_if_released: Callable[[], None]
+    ) -> None:
+        """Initialize the runner.
+
+        Given whether the stock client may still be used, and how to close its connection once the stock integration no longer uses it.
+        """
         self._usable = usable
+        self._close_if_released = close_if_released
         self._tasks: set[asyncio.Future[Any]] = set()
         self._closed = False
 
@@ -33,15 +39,23 @@ class SharedRpc:
 
     async def run[T](self, request: Callable[[], Awaitable[T]]) -> T:
         """Send a request, unless the stock client has gone or this runner is shut down."""
-        if not self.usable:
-            raise ClientConnectionError(UNLOADED)
-
-        task: asyncio.Future[T] = asyncio.ensure_future(request())
+        task: asyncio.Future[T] = asyncio.ensure_future(self._send(request))
         self._tasks.add(task)
         task.add_done_callback(self._done)
 
         # Shielded, so cancelling this wait leaves the request running
         return await asyncio.shield(task)
+
+    async def _send[T](self, request: Callable[[], Awaitable[T]]) -> T:
+        # Checked in the task rather than in run(), since the task's first step comes later and the stock entry may have started unloading by then.
+        if not self.usable:
+            raise ClientConnectionError(UNLOADED)
+        try:
+            return await request()
+        finally:
+            # A request that was reconnecting when the stock unload closed the client finishes opening the connection after that close.
+            # Nothing else would close that connection.
+            self._close_if_released()
 
     def _done(self, task: asyncio.Future[Any]) -> None:
         self._tasks.discard(task)
