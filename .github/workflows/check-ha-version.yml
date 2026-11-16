@@ -12,16 +12,14 @@ concurrency:
   group: ${{ github.workflow }}
   cancel-in-progress: true
 
-permissions:
-  contents: read
+permissions: {}
 
 jobs:
   check:
     name: Check pytest-homeassistant-custom-component for newer HA pin job
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
+    # Every write uses the App token, so the job needs nothing from GITHUB_TOKEN.
+    permissions: {}
 
     steps:
       - name: Generate GitHub App token step

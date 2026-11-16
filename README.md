@@ -68,13 +68,14 @@ It adds the following:
 
 ## Installation
 
-Home Assistant 2026.11 folded HACS into Core as the built-in Marketplace.
 Install and set up loopj's [Vantage InFusion][vantage-integration-link] integration first, and wait for it to load, then follow these steps.
+Home Assistant 2026.11 folded HACS into Core as the built-in Marketplace.
+On 2026.10, which is the minimum, install through HACS instead.
 
 1. Confirm the Vantage InFusion integration is installed and shows as loaded under **Settings -> Devices & Services**.
-1. In Home Assistant, open **Settings -> Marketplace**.
+1. On 2026.11 or later, open **Settings -> Marketplace**. On 2026.10, open **HACS -> Custom repositories**.
 1. Add `https://github.com/ptr727/homeassistant-vantage-diagnostics` as a custom repository with category **Integration**.
-1. Install **Vantage Diagnostics** from the Marketplace and restart Home Assistant.
+1. Install **Vantage Diagnostics** and restart Home Assistant.
 1. Open **Settings -> Devices & Services -> Add Integration** and add **Vantage Diagnostics**.
 
 ## Configuration

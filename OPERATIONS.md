@@ -38,4 +38,18 @@ Stub. No repository-specific tool notes have been written yet.
 
 ## Configuration Layout
 
-Stub. The integration code under `custom_components/vantage_diagnostics/` does not exist yet.
+The integration lives in `custom_components/vantage_diagnostics/`.
+It follows one loaded stock `vantage` entry and reuses its client for requests.
+It owns a second event stream for the trigger and system log lines, which the stock client must not subscribe to.
+
+- `__init__.py`: setup, the stock-entry watcher that reloads this entry, and the unload order.
+- `config_flow.py`: picks the loaded stock entry to follow.
+- `rpc.py`: runs every request on the stock config connection in a shielded task, so a cancel never leaves a reply unread.
+- `names.py`: resolves object names, from the stock client or by request.
+- `triggers.py`, `system_log.py`, `ordered.py`: fire the `vantage_trigger` and `vantage_system_log` events in arrival order.
+- `module_status.py`, `binary_sensor.py`: read the enclosure buses and expose one connectivity sensor per module, on the stock module device.
+- `diagnostic_services.py`, `module_status_service.py`: the response-only services.
+- `logbook.py`: describes the system log event.
+- `aiovantage_diag/`: protocol code vendored from loopj/aiovantage pull requests, always used instead of aiovantage's own.
+
+Tests live in `tests/components/vantage_diagnostics/` and run against fakes of the stock client and the event stream.

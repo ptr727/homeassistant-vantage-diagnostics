@@ -72,6 +72,9 @@ updates:
       - dependency-name: "pytest-homeassistant-custom-component"
       # The pytest-homeassistant-custom-component package also pins pytest-cov, so widening this constraint independently can break resolution.
       - dependency-name: "pytest-cov"
+      # The aiovantage pin stands in for the version the stock integration installs.
+      # It moves only when that integration's pin does.
+      - dependency-name: "aiovantage"
 
   - package-ecosystem: "pip"
     target-branch: "develop"
@@ -90,3 +93,5 @@ updates:
       - dependency-name: "homeassistant"
       - dependency-name: "pytest-homeassistant-custom-component"
       - dependency-name: "pytest-cov"
+      # The aiovantage pin stands in for the version the stock integration installs.
+      - dependency-name: "aiovantage"
