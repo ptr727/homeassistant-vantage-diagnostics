@@ -7,7 +7,7 @@ from typing import Any
 from unittest.mock import AsyncMock, patch
 
 from aiovantage.errors import ClientConnectionError
-from aiovantage.events import Disconnected, ObjectAdded
+from aiovantage.events import Disconnected, ObjectAdded, Reconnected
 from freezegun.api import FrozenDateTimeFactory
 import pytest
 from pytest_homeassistant_custom_component.common import (
@@ -34,10 +34,12 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.util import dt as dt_util
 
 from .conftest import (
     ENCLOSURE_VID,
+    MASTER_VID,
     MODULE_VID,
     FakeClient,
     FakeEventStream,
@@ -319,8 +321,6 @@ async def test_unavailable_while_stream_down(
     await hass.async_block_till_done()
     assert state_of(hass) == STATE_UNAVAILABLE
 
-    from aiovantage.events import Reconnected  # noqa: PLC0415
-
     fake_stream.instances[0].emit(Reconnected())
     await hass.async_block_till_done()
     assert state_of(hass) == STATE_ON
@@ -535,3 +535,62 @@ async def test_read_status_peer_master_is_addressed(
 
     assert modules_read.await_args_list[-1].kwargs == {"master": 2}
     assert status.enclosures == {ENCLOSURE_VID}
+
+
+def event_stream_id(hass: HomeAssistant) -> str:
+    """Return the entity ID of the event stream sensor, on the connected controller."""
+    stock = hass.config_entries.async_entries("vantage")[0]
+    entity_id = er.async_get(hass).async_get_entity_id(
+        "binary_sensor", DOMAIN, f"{stock.entry_id}:{MASTER_VID}:event_stream"
+    )
+    assert entity_id
+    return entity_id
+
+
+@pytest.mark.usefixtures("init_integration")
+async def test_event_stream_sensor_follows_the_stream(
+    hass: HomeAssistant, fake_stream: type[FakeEventStream]
+) -> None:
+    """Test that the event stream sensor starts enabled, and goes off rather than unavailable."""
+    entry = er.async_get(hass).async_get(event_stream_id(hass))
+    assert entry
+    assert entry.disabled_by is None
+    assert entry.translation_key == "event_stream"
+    assert entry.entity_category is EntityCategory.DIAGNOSTIC
+    assert entry.original_device_class == "connectivity"
+    device = dr.async_get(hass).async_get_device_by_identifier(
+        ("vantage", str(MASTER_VID)),
+        hass.config_entries.async_entries("vantage")[0].entry_id,
+    )
+    assert device
+    assert entry.device_id == device.id
+
+    def stream_state() -> str | None:
+        state = hass.states.get(event_stream_id(hass))
+        return state.state if state else None
+
+    assert stream_state() == STATE_ON
+
+    fake_stream.instances[0].emit(Disconnected())
+    await hass.async_block_till_done()
+    assert stream_state() == STATE_OFF
+
+    fake_stream.instances[0].emit(Reconnected())
+    await hass.async_block_till_done()
+    assert stream_state() == STATE_ON
+
+
+async def test_event_stream_sensor_unavailable_while_stock_entry_not_loaded(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    vantage_entry: MockConfigEntry,
+) -> None:
+    """Test that the event stream sensor is unavailable once the stock entry holds another client."""
+    # No state change, which would reload the entry, so only the check is exercised
+    vantage_entry.runtime_data = SimpleNamespace(client=FakeClient())
+    async_dispatcher_send(hass, init_integration.runtime_data.signal_connection_changed)
+    await hass.async_block_till_done()
+
+    state = hass.states.get(event_stream_id(hass))
+    assert state
+    assert state.state == STATE_UNAVAILABLE

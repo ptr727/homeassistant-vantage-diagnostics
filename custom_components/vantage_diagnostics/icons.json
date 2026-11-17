@@ -1,4 +1,23 @@
 {
+  "entity": {
+    "sensor": {
+      "bus_errors": {
+        "default": "mdi:alert-circle-outline"
+      },
+      "firmware_version": {
+        "default": "mdi:chip"
+      },
+      "hardware_model": {
+        "default": "mdi:expansion-card"
+      },
+      "hardware_revision": {
+        "default": "mdi:expansion-card-variant"
+      },
+      "host": {
+        "default": "mdi:ip-network"
+      }
+    }
+  },
   "services": {
     "get_module_status": {
       "service": "mdi:chip"
