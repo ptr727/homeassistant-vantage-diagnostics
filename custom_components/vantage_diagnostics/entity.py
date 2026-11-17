@@ -120,7 +120,7 @@ class VantageModuleEntity(
 ):
     """An entity reporting what the controller reads of a module on its enclosure bus.
 
-    Every module entity shares one bus read, so enabling more of them adds no bus traffic.
+    Every module entity shares one bus poll, so more of them listening adds no polling.
     """
 
     # Kept while the module is off the bus, when the controller no longer lists it
