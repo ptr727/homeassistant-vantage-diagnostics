@@ -128,7 +128,8 @@ class ModuleStatusCoordinator(DataUpdateCoordinator[ModuleStatus]):
     """Poll the modules that respond on the bus.
 
     A module missing from the bus has lost power, eg. its breaker tripped. The bus is
-    only read while a module entity listens, and they're disabled by default.
+    only read while a module entity listens, and the connectivity and bus error sensors
+    start enabled.
     """
 
     def __init__(

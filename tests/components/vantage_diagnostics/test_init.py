@@ -154,7 +154,7 @@ async def test_no_enhanced_log(
     """Test that firmware without the enhanced log subscribes to neither log."""
     config_entry.add_to_hass(hass)
     await hass.config_entries.async_setup(config_entry.entry_id)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     assert fake_stream.instances[0].log_subscriptions == []
     assert "no enhanced log" in caplog.text
@@ -197,7 +197,7 @@ async def test_stock_entry_reload_reloads_ours(
     # Loaded again, a retry sets up
     vantage_entry.mock_state(hass, ConfigEntryState.LOADED)
     await hass.config_entries.async_reload(init_integration.entry_id)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert init_integration.state is ConfigEntryState.LOADED
 
 
@@ -211,7 +211,7 @@ async def test_stock_client_replaced_reloads_ours(
     new_client = FakeClient()
     vantage_entry.runtime_data = SimpleNamespace(client=new_client)
     vantage_entry.mock_state(hass, ConfigEntryState.LOADED)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     assert init_integration.state is ConfigEntryState.LOADED
     assert init_integration.runtime_data.client is new_client

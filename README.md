@@ -119,18 +119,20 @@ A module online or offline entry also updates that module's connectivity sensor 
 ## Entities
 
 Every entity has the diagnostic entity category and joins a device the stock integration owns, so it shows on that device's page.
-Only the event stream sensor starts enabled.
-Enable any of the others from the device page.
+The fault signals start enabled: each module's connectivity and bus error sensors, and the event stream sensor.
+The inventory sensors start disabled, to keep the device pages tidy: hardware model, hardware revision, firmware version and host.
+Enabling them adds no bus load, since the module sensors all read the same reply, and the host comes from the stock entry.
+Enable them from the device page.
 
-| Entity | On | What it reports |
-| --- | --- | --- |
-| **Connectivity** | Each module | Whether the module responds on its enclosure bus. It turns off when the module loses power, such as when its breaker trips. Its attributes hold the module's bus address and error count |
-| **Hardware model** | Each module | The hardware model the module reports. The stock device's model is the Design Center object type instead |
-| **Hardware revision** | Each module | The hardware revision the module reports, which changes when a module is swapped for a newer revision of the same hardware |
-| **Firmware version** | Each module | The firmware version the module reports |
-| **Bus errors** | Each module | How many times the module lost and regained the bus. The controller only raises this count, so the sensor has the `total_increasing` state class |
-| **Event stream** | The controller | Whether this integration's own event stream is connected |
-| **Host** | The controller | The host both integrations connect to, which the stock integration no longer shows |
+| Entity | On | Enabled by default | What it reports |
+| --- | --- | --- | --- |
+| **Connectivity** | Each module | Yes | Whether the module responds on its enclosure bus. It turns off when the module loses power, such as when its breaker trips. Its attributes hold the module's bus address and error count |
+| **Hardware model** | Each module | No | The hardware model the module reports. The stock device's model is the Design Center object type instead |
+| **Hardware revision** | Each module | No | The hardware revision the module reports, which changes when a module is swapped for a newer revision of the same hardware |
+| **Firmware version** | Each module | No | The firmware version the module reports |
+| **Bus errors** | Each module | Yes | How many times the module lost and regained the bus. The controller only raises this count, so the sensor has the `total_increasing` state class |
+| **Event stream** | The controller | Yes | Whether this integration's own event stream is connected |
+| **Host** | The controller | No | The host both integrations connect to, which the stock integration no longer shows |
 
 The module entities read the enclosure buses every 60 seconds, and only while at least one of them is enabled.
 A module online or offline log refreshes them at once.

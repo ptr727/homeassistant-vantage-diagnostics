@@ -35,17 +35,24 @@ class VantageModuleSensorEntityDescription(SensorEntityDescription):
     value_fn: Callable[[ModuleInfo], str | int | None]
 
 
+# Inventory starts disabled, the bus error count is a fault signal and starts enabled
 MODULE_SENSORS: tuple[VantageModuleSensorEntityDescription, ...] = (
     # The stock device's model is the Design Center object type, not the hardware
     VantageModuleSensorEntityDescription(
-        key="hardware_model", value_fn=lambda info: info.model
+        key="hardware_model",
+        entity_registry_enabled_default=False,
+        value_fn=lambda info: info.model,
     ),
     # Shows when a module was swapped for a newer revision of the same hardware
     VantageModuleSensorEntityDescription(
-        key="hardware_revision", value_fn=lambda info: info.revision
+        key="hardware_revision",
+        entity_registry_enabled_default=False,
+        value_fn=lambda info: info.revision,
     ),
     VantageModuleSensorEntityDescription(
-        key="firmware_version", value_fn=lambda info: info.version
+        key="firmware_version",
+        entity_registry_enabled_default=False,
+        value_fn=lambda info: info.version,
     ),
     # The controller only raises the count, each time the module loses and regains the bus
     VantageModuleSensorEntityDescription(

@@ -46,6 +46,17 @@ def entity_registry_enabled_by_default() -> Generator[None]:
         yield
 
 
+@pytest.fixture
+def entity_registry_disabled_by_default() -> Generator[None]:
+    """Disable every entity, including those enabled by default, so nothing reads the bus."""
+    with patch(
+        "homeassistant.helpers.entity.Entity.entity_registry_enabled_default",
+        return_value=False,
+        new_callable=PropertyMock,
+    ):
+        yield
+
+
 class FakeController:
     """A stand-in for an aiovantage controller, iterable and subscribable."""
 

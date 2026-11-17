@@ -29,15 +29,16 @@ A module entity's unique ID is `<stock entry ID>:<module VID>:<key>`, and a cont
 
 | Key | Platform | Device | Enabled by default |
 | --- | --- | --- | --- |
-| `connectivity` | Binary sensor | Each module | No |
+| `connectivity` | Binary sensor | Each module | Yes |
 | `hardware_model` | Sensor | Each module | No |
 | `hardware_revision` | Sensor | Each module | No |
 | `firmware_version` | Sensor | Each module | No |
-| `bus_errors` | Sensor | Each module | No |
+| `bus_errors` | Sensor | Each module | Yes |
 | `event_stream` | Binary sensor | The controller this integration connects to | Yes |
 | `host` | Sensor | The controller this integration connects to | No |
 
 The module entities read the enclosure bus through one coordinator, which only polls while one of them is enabled.
+The connectivity and bus error sensors start enabled, so a new entry polls from setup.
 They go unavailable while the event stream is down, or when no enclosure at all can be read.
 A module in an enclosure that can't be read keeps its last values, and its connectivity sensor turns unknown.
 The event stream sensor turns off when the stream drops after setup.

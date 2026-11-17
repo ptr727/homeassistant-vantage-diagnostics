@@ -92,25 +92,28 @@ def full_info_read(modules_read: AsyncMock) -> AsyncMock:
 
 
 @pytest.mark.usefixtures("init_integration")
-async def test_disabled_by_default(
-    hass: HomeAssistant, modules_read: AsyncMock
-) -> None:
-    """Test that every sensor starts disabled as a diagnostic, and nothing reads the bus for them."""
+async def test_enabled_by_default(hass: HomeAssistant) -> None:
+    """Test that the bus error sensor starts enabled and the inventory sensors disabled, all as diagnostics."""
     registry = er.async_get(hass)
-    for key, vid in [
-        *((key, MODULE_VID) for key in MODULE_SENSORS),
-        ("host", MASTER_VID),
+    for key, vid, enabled in [
+        ("hardware_model", MODULE_VID, False),
+        ("hardware_revision", MODULE_VID, False),
+        ("firmware_version", MODULE_VID, False),
+        ("bus_errors", MODULE_VID, True),
+        ("host", MASTER_VID, False),
     ]:
         entity_id = sensor_id(hass, key, vid)
         assert entity_id, key
         entry = registry.async_get(entity_id)
         assert entry
-        assert entry.disabled_by is er.RegistryEntryDisabler.INTEGRATION
         assert entry.translation_key == key
         assert entry.entity_category is EntityCategory.DIAGNOSTIC
-        assert hass.states.get(entity_id) is None
-
-    modules_read.assert_not_awaited()
+        if enabled:
+            assert entry.disabled_by is None, key
+            assert state_of(hass, key, vid) == "0"
+        else:
+            assert entry.disabled_by is er.RegistryEntryDisabler.INTEGRATION, key
+            assert hass.states.get(entity_id) is None
 
 
 @pytest.mark.usefixtures("entity_registry_enabled_by_default", "full_info_read")
