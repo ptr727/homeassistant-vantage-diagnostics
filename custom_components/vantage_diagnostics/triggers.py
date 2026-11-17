@@ -3,6 +3,7 @@
 from typing import Any
 
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
 
 from .aiovantage_diag import TriggerReceived, TriggerType, subscribe_triggers
 from .config_entry import VantageDiagnosticsConfigEntry
@@ -36,6 +37,25 @@ async def describe_trigger(
 
 
 @callback
+def source_entity_id(
+    hass: HomeAssistant, vantage_entry_id: str, vid: int
+) -> str | None:
+    """Return the stock entity for an object, whose unique ID is the object's VID, if it has one."""
+    # A button, the usual source, has no entity, and an entity suffixed after the VID is a part of the object
+    unique_id = str(vid)
+    return next(
+        (
+            entity.entity_id
+            for entity in er.async_entries_for_config_entry(
+                er.async_get(hass), vantage_entry_id
+            )
+            if entity.unique_id == unique_id
+        ),
+        None,
+    )
+
+
+@callback
 def async_setup_triggers(
     hass: HomeAssistant, entry: VantageDiagnosticsConfigEntry
 ) -> None:
@@ -53,6 +73,11 @@ def async_setup_triggers(
             trigger.param1,
             trigger.param2,
         )
+        # The entity ID is what files the event under that entity's own logbook too
+        if entity_id := source_entity_id(
+            hass, entry.runtime_data.vantage_entry_id, trigger.source
+        ):
+            payload["entity_id"] = entity_id
         hass.bus.async_fire(EVENT_TRIGGER, {"host": vantage.host} | payload)
 
     # Fire in the order the controller reported, though some names need a lookup
