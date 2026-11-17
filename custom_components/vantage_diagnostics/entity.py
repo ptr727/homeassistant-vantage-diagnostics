@@ -120,10 +120,8 @@ class VantageModuleEntity(
 ):
     """An entity reporting what the controller reads of a module on its enclosure bus.
 
-    Disabled by default, since the bus is only read while one of these listens.
+    Every module entity shares one bus poll, so more of them listening adds no polling.
     """
-
-    _attr_entity_registry_enabled_default = False
 
     # Kept while the module is off the bus, when the controller no longer lists it
     _last_info: ModuleInfo | None = None

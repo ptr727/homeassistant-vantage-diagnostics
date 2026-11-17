@@ -112,6 +112,7 @@ async def test_trigger_names_source_entity(
     assert "entity_id" not in events[1].data
 
 
+@pytest.mark.usefixtures("forget_setup_lookup")
 async def test_trigger_from_unloaded_object(
     hass: HomeAssistant,
     fake_stream: type[FakeEventStream],
