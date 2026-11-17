@@ -28,6 +28,7 @@ It installs through the Home Assistant Marketplace as a custom repository.
 **Version 0.1**:
 
 - `vantage_trigger` events for each task a controller object starts, and `vantage_system_log` events for notable system log entries.
+- Logbook entries for the trigger and system log events, with a trigger also shown on its source's stock entity where it has one.
 - Module connectivity, hardware model, hardware revision, firmware version and bus error sensors, attached to the stock module devices.
 - Event stream and host sensors on the controller device.
 - The `get_trigger_history`, `get_system_log` and `get_module_status` response-only services.
@@ -90,8 +91,14 @@ A button with no task assigned fires nothing.
 | `source_path` | The object's name followed by the names of the objects it sits in, such as its keypad and station |
 | `task_id`, `task_name` | The VID and name of the task it started |
 | `param1`, `param2` | The trigger's two parameters, whose meaning depends on its kind |
+| `entity_id` | The stock integration's entity for the source object, present only when it has one, such as a dry contact. A button has none |
 
 For example, a press on a keypad button might fire `trigger_type: button_down`, `source_name: Button 2`, `source_path: [Button 2, Hall Keypad]` and `task_name: Hall Lights`.
+
+The logbook shows every trigger as `Vantage`, naming the source, the object it sits in, the task and the kind.
+For example, `Button 2 on Hall Keypad started task Hall Lights (button down)`.
+A trigger with an `entity_id` also shows in that entity's logbook.
+A busy program can add many entries a minute.
 
 ### `vantage_system_log`
 
@@ -149,7 +156,7 @@ The module status service lists every module even when no enclosure could be rea
 
 | Service | Fields | Returns |
 | --- | --- | --- |
-| `vantage_diagnostics.get_trigger_history` | `limit`, entries per master, default 100 | `entries`: the trigger history, newest last, with the `vantage_trigger` fields plus `time` and `master`. Times are the controller's local time |
+| `vantage_diagnostics.get_trigger_history` | `limit`, entries per master, default 100 | `entries`: the trigger history, newest last, with the `vantage_trigger` fields other than `entity_id`, plus `time` and `master`. Times are the controller's local time |
 | `vantage_diagnostics.get_system_log` | `limit`, entries per master, default 100 | `entries`: the system log, newest last, with `time`, `master`, `type`, `source` and `message` |
 | `vantage_diagnostics.get_module_status` | None | `modules`: each module with `module_id`, `module_name`, `online`, `address`, `model`, `revision`, `version`, `status` and `errors` |
 

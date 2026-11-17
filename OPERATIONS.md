@@ -81,7 +81,8 @@ It owns a second event stream for the trigger and system log lines, which the st
 - `binary_sensor.py`: the module connectivity sensors and the event stream sensor.
 - `sensor.py`: the module hardware, firmware and bus error sensors and the controller host sensor.
 - `diagnostic_services.py`, `module_status_service.py`: the response-only services.
-- `logbook.py`: describes the system log event.
+- `logbook.py`: describes the trigger and system log events.
+  `triggers.py` adds the `entity_id` of the stock entity whose unique ID is the source VID, so that entity's logbook shows the trigger too.
 - `aiovantage_diag/`: protocol code vendored from loopj/aiovantage pull requests, always used instead of aiovantage's own.
 
 Tests live in `tests/components/vantage_diagnostics/` and run against fakes of the stock client and the event stream.
