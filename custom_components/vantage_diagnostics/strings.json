@@ -18,6 +18,26 @@
     "binary_sensor": {
       "connectivity": {
         "name": "Connectivity"
+      },
+      "event_stream": {
+        "name": "Event stream"
+      }
+    },
+    "sensor": {
+      "bus_errors": {
+        "name": "Bus errors"
+      },
+      "firmware_version": {
+        "name": "Firmware version"
+      },
+      "hardware_model": {
+        "name": "Hardware model"
+      },
+      "hardware_revision": {
+        "name": "Hardware revision"
+      },
+      "host": {
+        "name": "Host"
       }
     }
   },

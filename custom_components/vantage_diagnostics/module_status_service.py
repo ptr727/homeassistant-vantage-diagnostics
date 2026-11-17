@@ -36,6 +36,7 @@ async def _read_module_status(
                 "online": status.is_online(module),
                 "address": info.address if info else None,
                 "model": info.model if info else None,
+                "revision": info.revision if info else None,
                 "version": info.version if info else None,
                 "status": [info.status.proc0, info.status.proc1]
                 if info and info.status

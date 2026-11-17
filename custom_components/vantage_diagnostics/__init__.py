@@ -42,7 +42,7 @@ from .rpc import SharedRpc
 from .system_log import async_setup_system_log
 from .triggers import async_setup_triggers
 
-PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR]
+PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.SENSOR]
 
 # The stock integration refreshes its objects 30 s after a reprogram.
 # Forget the names looked up here shortly after, once that refresh is done.

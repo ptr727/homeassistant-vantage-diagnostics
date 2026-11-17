@@ -27,7 +27,11 @@ It installs through the Home Assistant Marketplace as a custom repository.
 
 **Version 0.1**:
 
-- Initial repository standup. There is no release yet.
+- `vantage_trigger` events for each task a controller object starts, and `vantage_system_log` events for notable system log entries.
+- Logbook entries for the trigger and system log events, with a trigger also shown on its source's stock entity where it has one.
+- Module connectivity, hardware model, hardware revision, firmware version and bus error sensors, attached to the stock module devices.
+- Event stream and host sensors on the controller device.
+- The `get_trigger_history`, `get_system_log` and `get_module_status` response-only services.
 
 See [Release History][history] for complete release notes and older versions.
 
@@ -40,6 +44,9 @@ See [Release History][history] for complete release notes and older versions.
     - [Release Notes](#release-notes)
   - [Table of Contents](#table-of-contents)
   - [Overview](#overview)
+  - [Events](#events)
+  - [Entities](#entities)
+  - [Services](#services)
   - [Installation](#installation)
   - [Configuration](#configuration)
   - [Questions or Issues](#questions-or-issues)
@@ -57,14 +64,104 @@ It declares no `requirements`, so it runs on the `aiovantage` version the stock 
 The diagnostic protocol code that `aiovantage` does not release yet is vendored in `custom_components/vantage_diagnostics/aiovantage_diag/`.
 If the stock integration is reloaded, this integration reloads with it.
 
-It adds the following:
+It adds the following, each described in its own section below:
 
-- **`vantage_trigger` events**: Events fired for controller triggers.
-- **`vantage_system_log` events**: Events fired for controller system log entries.
-- **Module connectivity sensors**: One diagnostic binary sensor per module that reports whether the module responds on its enclosure bus. They are disabled by default.
-- **`get_trigger_history` service**: A response-only service that returns recent trigger history.
-- **`get_system_log` service**: A response-only service that returns the controller system log.
-- **`get_module_status` service**: A response-only service that returns the module status.
+- **Events**: `vantage_trigger` and `vantage_system_log`, fired on the Home Assistant event bus.
+- **Entities**: diagnostic sensors on the stock integration's module and controller devices.
+- **Services**: three response-only services that read the controller's trigger history, system log and module status.
+
+## Events
+
+Both events arrive on this integration's own event stream, which needs controller firmware with the enhanced log.
+On older firmware the integration logs that no trigger or system log events will fire, and the rest of it still works.
+Each event carries the `host` of the controller this integration connects to.
+On a project with several masters, the stream also carries the other masters' events, and they carry that same `host`.
+They keep the names the earlier fork of the stock integration fired, so automations written for that fork keep working.
+
+### `vantage_trigger`
+
+Fired each time a controller object, such as a button, a timer or a sensor, starts a task.
+A button with no task assigned fires nothing.
+
+| Field | Meaning |
+| --- | --- |
+| `trigger_type` | The kind of trigger, such as `button_down`, `button_up` or `timer`, or `unknown_<number>` for a kind not yet known |
+| `event` | The controller's raw trigger number |
+| `source_id`, `source_name` | The VID and name of the object that started the task |
+| `source_path` | The object's name followed by the names of the objects it sits in, such as its keypad and station |
+| `task_id`, `task_name` | The VID and name of the task it started |
+| `param1`, `param2` | The trigger's two parameters, whose meaning depends on its kind |
+| `entity_id` | The stock integration's entity for the source object, present only when it has one, such as a dry contact. A button has none |
+
+For example, a press on a keypad button might fire `trigger_type: button_down`, `source_name: Button 2`, `source_path: [Button 2, Hall Keypad]` and `task_name: Hall Lights`.
+
+The logbook shows every trigger as `Vantage`, naming the source, the object it sits in, the task and the kind.
+For example, `Button 2 on Hall Keypad started task Hall Lights (button down)`.
+A trigger with an `entity_id` also shows in that entity's logbook.
+A busy program can add many entries a minute.
+
+### `vantage_system_log`
+
+Fired for each notable system log entry: every warning, error and fatal entry, and the module online, offline and status entries.
+Compiler warnings from a program write are dropped.
+A burst of warnings of one shape fires once, then once an hour while the burst continues.
+
+| Field | Meaning |
+| --- | --- |
+| `type` | The entry type, such as `warning` or `error` |
+| `source` | The controller subsystem that logged it |
+| `message` | The log message |
+| `object_id`, `object_name` | The VID and name of the object the message names, present only when it names one |
+
+The logbook shows each one as `Vantage`, with its type and message.
+A module online or offline entry also updates that module's connectivity sensor at once.
+
+## Entities
+
+Every entity has the diagnostic entity category and joins a device the stock integration owns, so it shows on that device's page.
+Only the event stream sensor starts enabled.
+Enable any of the others from the device page.
+
+| Entity | On | What it reports |
+| --- | --- | --- |
+| **Connectivity** | Each module | Whether the module responds on its enclosure bus. It turns off when the module loses power, such as when its breaker trips. Its attributes hold the module's bus address and error count |
+| **Hardware model** | Each module | The hardware model the module reports. The stock device's model is the Design Center object type instead |
+| **Hardware revision** | Each module | The hardware revision the module reports, which changes when a module is swapped for a newer revision of the same hardware |
+| **Firmware version** | Each module | The firmware version the module reports |
+| **Bus errors** | Each module | How many times the module lost and regained the bus. The controller only raises this count, so the sensor has the `total_increasing` state class |
+| **Event stream** | The controller | Whether this integration's own event stream is connected |
+| **Host** | The controller | The host both integrations connect to, which the stock integration no longer shows |
+
+The module entities read the enclosure buses every 60 seconds, and only while at least one of them is enabled.
+A module online or offline log refreshes them at once.
+A module missing from one read stays online until a second read confirms it.
+So a module re-announcing itself after a program write does not flicker off.
+The module entities keep their last values while a module is off the bus or its enclosure can't be read.
+They go unavailable while the event stream is down, or when no enclosure at all can be read.
+
+The event stream is a second Host Command session, apart from the stock integration's, and both events arrive on it.
+Its sensor turns off when the stream drops after setup.
+If the stream can't connect at setup, the entry retries and every entity stays unavailable.
+So an automation that alerts on it watches for both off and unavailable.
+
+## Services
+
+Each service is response-only, so call it from an automation or script with a `response_variable`, or from **Developer tools -> Actions**.
+Each reads every loaded controller, and on a project with several masters it reads each master in turn.
+Every entry carries the `host` of the controller this integration connects to, which tells entries from different stock entries apart.
+A trigger history or system log entry names the master it was read from in `master`.
+The response holds what was read and an `errors` list naming each master or enclosure that could not be read.
+The trigger history and system log services fail only when nothing at all could be read.
+The module status service lists every module even when no enclosure could be read, with `online` null and the failures in `errors`.
+
+| Service | Fields | Returns |
+| --- | --- | --- |
+| `vantage_diagnostics.get_trigger_history` | `limit`, entries per master, default 100 | `entries`: the trigger history, newest last, with the `vantage_trigger` fields other than `entity_id`, plus `time` and `master`. Times are the controller's local time |
+| `vantage_diagnostics.get_system_log` | `limit`, entries per master, default 100 | `entries`: the system log, newest last, with `time`, `master`, `type`, `source` and `message` |
+| `vantage_diagnostics.get_module_status` | None | `modules`: each module with `module_id`, `module_name`, `online`, `address`, `model`, `revision`, `version`, `status` and `errors` |
+
+The module status service reads the bus whether or not any module entity is enabled.
+Its `online` is null for a module whose enclosure could not be read.
 
 ## Installation
 
