@@ -39,7 +39,7 @@ A module entity's unique ID is `<stock entry ID>:<module VID>:<key>`, and a cont
 
 The module entities read the enclosure bus through one coordinator, which only polls while one of them is enabled.
 The connectivity and bus error sensors start enabled, so a new entry polls from setup.
-They go unavailable while the event stream is down, or when no enclosure at all can be read.
+Every module entity goes unavailable while the event stream is down, or when no enclosure at all can be read.
 A module in an enclosure that can't be read keeps its last values, and its connectivity sensor turns unknown.
 The event stream sensor turns off when the stream drops after setup.
 If the stream can't connect at setup, the entry retries and every entity stays unavailable.

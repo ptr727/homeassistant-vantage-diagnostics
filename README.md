@@ -123,8 +123,8 @@ The fault signals start enabled: each module's connectivity and bus error sensor
 The inventory sensors start disabled, to keep the device pages tidy: hardware model, hardware revision, firmware version and host.
 While a fault sensor is enabled, they add no polling, since the module sensors all read the same reply.
 The host comes from the stock entry.
-Enabling any entity reloads the entry about 30 seconds later, which reads the bus once more.
-Enable them from the device page.
+Enabling any entity reloads the entry about 30 seconds later, which reads the bus once more while a module entity is enabled.
+Enable an inventory sensor from its device page.
 
 | Entity | On | Enabled by default | What it reports |
 | --- | --- | --- | --- |
