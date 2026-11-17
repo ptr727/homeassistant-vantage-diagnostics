@@ -11,7 +11,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from homeassistant.core import HomeAssistant
 
-pytestmark = pytest.mark.usefixtures("init_integration")
+pytestmark = pytest.mark.usefixtures("init_integration", "forget_setup_lookup")
 
 
 def timer(name: str) -> SimpleNamespace:

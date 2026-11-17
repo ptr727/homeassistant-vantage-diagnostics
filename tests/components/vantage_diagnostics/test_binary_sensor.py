@@ -89,18 +89,18 @@ async def log_line(hass: HomeAssistant, stream: FakeEventStream, line: str) -> N
 
 
 @pytest.mark.usefixtures("init_integration")
-async def test_disabled_by_default(
-    hass: HomeAssistant, modules_read: AsyncMock
-) -> None:
-    """Test that the sensor starts disabled, and nothing reads the bus for it."""
+async def test_enabled_by_default(hass: HomeAssistant, modules_read: AsyncMock) -> None:
+    """Test that the sensor starts enabled, and reads the bus at setup."""
     entry = er.async_get(hass).async_get(sensor_id(hass))
     assert entry
-    assert entry.disabled_by is er.RegistryEntryDisabler.INTEGRATION
+    assert entry.disabled_by is None
     assert entry.translation_key == "connectivity"
     assert entry.entity_category is EntityCategory.DIAGNOSTIC
     assert entry.original_device_class == "connectivity"
-    assert hass.states.get(sensor_id(hass)) is None
-    modules_read.assert_not_awaited()
+    state = hass.states.get(sensor_id(hass))
+    assert state
+    assert state.state == STATE_ON
+    modules_read.assert_awaited_once()
 
 
 @pytest.mark.usefixtures("entity_registry_enabled_by_default")
@@ -398,11 +398,11 @@ async def test_module_added_later(
     assert unique_id_to_entity_id(hass, 103)
 
 
-@pytest.mark.usefixtures("init_integration")
+@pytest.mark.usefixtures("entity_registry_disabled_by_default", "init_integration")
 async def test_status_service_reads_the_bus_while_sensors_are_disabled(
     hass: HomeAssistant, modules_read: AsyncMock
 ) -> None:
-    """Test that the service reads the bus though no sensor listens."""
+    """Test that nothing reads the bus while every sensor is disabled, but the service does."""
     modules_read.assert_not_awaited()
 
     await hass.services.async_call(
