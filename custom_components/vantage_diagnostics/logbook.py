@@ -10,7 +10,7 @@ from homeassistant.components.logbook.const import (
 )
 from homeassistant.core import Event, HomeAssistant, callback
 
-from .const import DOMAIN, EVENT_SYSTEM_LOG, EVENT_TRIGGER
+from .const import DOMAIN, EVENT_SYSTEM_LOG, EVENT_TRIGGER, VANTAGE_DOMAIN
 
 
 def _text(value: Any) -> str:
@@ -30,8 +30,7 @@ def trigger_message(data: dict[str, Any]) -> str:
 
     Recorded events can predate a field, or come from the earlier fork, so every field is optional.
     """
-    path = data.get("source_path")
-    names = [_text(name) for name in path[:2]] if isinstance(path, list) else []
+    names = [_text(name) for name in (data.get("source_path") or [])[:2]]
     source = _object(
         (names[0] if names else "") or data.get("source_name"),
         data.get("source_id"),
@@ -71,12 +70,13 @@ def async_describe_events(
     @callback
     def describe_system_log(event: Event[Any]) -> dict[str, str]:
         data = event.data
-        log_type = str(data.get("type") or "").capitalize()
-        message = str(data.get("message") or "")
+        log_type = _text(data.get("type")).capitalize()
+        message = _text(data.get("message"))
         return {
             LOGBOOK_ENTRY_NAME: "Vantage",
             LOGBOOK_ENTRY_MESSAGE: f"{log_type}: {message}" if log_type else message,
         }
 
-    async_describe_event(DOMAIN, EVENT_TRIGGER, describe_trigger)
+    # An entity's logbook only asks for the events of its own entry's domain, and the source entity is the stock one's
+    async_describe_event(VANTAGE_DOMAIN, EVENT_TRIGGER, describe_trigger)
     async_describe_event(DOMAIN, EVENT_SYSTEM_LOG, describe_system_log)

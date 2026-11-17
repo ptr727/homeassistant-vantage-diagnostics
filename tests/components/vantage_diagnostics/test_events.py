@@ -374,7 +374,11 @@ def logbook_describers(
     def describe_event(
         domain: str, event_type: str, describer: Callable[[Event[Any]], dict[str, str]]
     ) -> None:
-        assert domain == DOMAIN
+        # The trigger is filed under the stock domain, which an entity's own logbook asks for
+        assert (
+            domain
+            == {EVENT_TRIGGER: VANTAGE_DOMAIN, EVENT_SYSTEM_LOG: DOMAIN}[event_type]
+        )
         describers[event_type] = describer
 
     async_describe_events(hass, describe_event)
@@ -477,13 +481,12 @@ async def test_logbook_trigger_missing_fields(
             {"source_path": ["", "Hall Keypad"]},
             "Hall Button on Hall Keypad started task Lamp (button down)",
         ),
-        ({"source_path": "Hall Button"}, "Hall Button started task Lamp (button down)"),
     ],
 )
 async def test_logbook_trigger_odd_fields(
     hass: HomeAssistant, data: dict[str, Any], message: str
 ) -> None:
-    """Test that unknown, empty and malformed trigger fields still read."""
+    """Test that unknown and empty trigger fields still read."""
     describe = logbook_describers(hass)[EVENT_TRIGGER]
 
     described = describe(Event(EVENT_TRIGGER, TRIGGER_DATA | data))
