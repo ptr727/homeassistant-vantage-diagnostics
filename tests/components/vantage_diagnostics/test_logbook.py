@@ -56,7 +56,7 @@ async def test_trigger_in_source_entity_logbook(
     fake_stream: type[FakeEventStream],
 ) -> None:
     """Test that a trigger shows in the logbook, and in its source entity's own logbook."""
-    door = er.async_get(hass).async_get_or_create(
+    source_entity = er.async_get(hass).async_get_or_create(
         "binary_sensor", VANTAGE_DOMAIN, str(BUTTON_VID), config_entry=vantage_entry
     )
     # The frontend's files aren't installed for tests, and the logbook only needs it present
@@ -76,10 +76,10 @@ async def test_trigger_in_source_entity_logbook(
         "Hall Button on Hall Keypad started task Lamp (button down)",
         "Other started task Lamp",
     ]
-    assert everything[0]["entity_id"] == door.entity_id
+    assert everything[0]["entity_id"] == source_entity.entity_id
 
     entity_only = await logbook_entries(
-        hass, hass_ws_client, entity_ids=[door.entity_id]
+        hass, hass_ws_client, entity_ids=[source_entity.entity_id]
     )
     assert [entry["message"] for entry in entity_only] == [
         "Hall Button on Hall Keypad started task Lamp (button down)"

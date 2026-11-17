@@ -91,7 +91,7 @@ async def test_trigger_names_source_entity(
     """Test that a trigger names its source's stock entity, so the entity's logbook shows it."""
     events = async_capture_events(hass, EVENT_TRIGGER)
     registry = er.async_get(hass)
-    door = registry.async_get_or_create(
+    source_entity = registry.async_get_or_create(
         "binary_sensor", VANTAGE_DOMAIN, str(BUTTON_VID), config_entry=vantage_entry
     )
     # An entity for a part of another object, or of another entry, is not the source's
@@ -105,7 +105,10 @@ async def test_trigger_names_source_entity(
     stream.emit_log(f"{TASK_VID} {TASK_VID} 1 0 0")
     await hass.async_block_till_done(wait_background_tasks=True)
 
-    assert [event.data.get("entity_id") for event in events] == [door.entity_id, None]
+    assert [event.data.get("entity_id") for event in events] == [
+        source_entity.entity_id,
+        None,
+    ]
     assert "entity_id" not in events[1].data
 
 

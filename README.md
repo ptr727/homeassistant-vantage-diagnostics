@@ -28,7 +28,7 @@ It installs through the Home Assistant Marketplace as a custom repository.
 **Version 0.1**:
 
 - `vantage_trigger` events for each task a controller object starts, and `vantage_system_log` events for notable system log entries.
-- Logbook entries for both events, with a trigger also shown on its source's stock entity where it has one.
+- Logbook entries for the trigger and system log events, with a trigger also shown on its source's stock entity where it has one.
 - Module connectivity, hardware model, hardware revision, firmware version and bus error sensors, attached to the stock module devices.
 - Event stream and host sensors on the controller device.
 - The `get_trigger_history`, `get_system_log` and `get_module_status` response-only services.
@@ -95,7 +95,8 @@ A button with no task assigned fires nothing.
 
 For example, a press on a keypad button might fire `trigger_type: button_down`, `source_name: Button 2`, `source_path: [Button 2, Hall Keypad]` and `task_name: Hall Lights`.
 
-The logbook shows every trigger as `Vantage`, naming the source, the object it sits in, the task and the kind, such as `Button 2 on Hall Keypad started task Hall Lights (button down)`.
+The logbook shows every trigger as `Vantage`, naming the source, the object it sits in, the task and the kind.
+For example, `Button 2 on Hall Keypad started task Hall Lights (button down)`.
 A trigger with an `entity_id` also shows in that entity's logbook.
 A busy program can add many entries a minute.
 
