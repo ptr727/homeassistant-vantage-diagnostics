@@ -11,15 +11,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from homeassistant.core import HomeAssistant
 
-pytestmark = pytest.mark.usefixtures("init_integration")
-
-
-@pytest.fixture(autouse=True)
-def forget_setup_lookup(
-    init_integration: MockConfigEntry, enclosure_lookup: AsyncMock
-) -> None:
-    """Forget the enclosure lookup the bus read at setup made, so each test counts its own."""
-    enclosure_lookup.reset_mock()
+pytestmark = pytest.mark.usefixtures("init_integration", "forget_setup_lookup")
 
 
 def timer(name: str) -> SimpleNamespace:

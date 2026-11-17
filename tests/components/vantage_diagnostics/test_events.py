@@ -112,6 +112,7 @@ async def test_trigger_names_source_entity(
     assert "entity_id" not in events[1].data
 
 
+@pytest.mark.usefixtures("forget_setup_lookup")
 async def test_trigger_from_unloaded_object(
     hass: HomeAssistant,
     fake_stream: type[FakeEventStream],
@@ -122,8 +123,6 @@ async def test_trigger_from_unloaded_object(
     timer = SimpleNamespace(vid=70, obj=SimpleNamespace(name="Sunset", parent=None))
     enclosure_lookup.return_value = [timer]
 
-    # Forget the enclosure lookup the bus read at setup made
-    enclosure_lookup.reset_mock()
     for _ in range(2):
         fake_stream.instances[0].emit_log(f"70 {TASK_VID} 3 0 0")
         await hass.async_block_till_done(wait_background_tasks=True)

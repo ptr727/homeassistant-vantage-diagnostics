@@ -35,7 +35,6 @@ class VantageModuleSensorEntityDescription(SensorEntityDescription):
     value_fn: Callable[[ModuleInfo], str | int | None]
 
 
-# Inventory starts disabled, the bus error count is a fault signal and starts enabled
 MODULE_SENSORS: tuple[VantageModuleSensorEntityDescription, ...] = (
     # The stock device's model is the Design Center object type, not the hardware
     VantageModuleSensorEntityDescription(

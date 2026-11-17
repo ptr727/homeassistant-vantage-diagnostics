@@ -36,6 +36,8 @@ MODULE_SENSORS = (
     "bus_errors",
 )
 
+ENABLED_SENSORS = {"bus_errors"}
+
 FULL_INFO = ModuleInfo(
     address=1,
     vid=MODULE_VID,
@@ -95,13 +97,11 @@ def full_info_read(modules_read: AsyncMock) -> AsyncMock:
 async def test_enabled_by_default(hass: HomeAssistant) -> None:
     """Test that the bus error sensor starts enabled and the inventory sensors disabled, all as diagnostics."""
     registry = er.async_get(hass)
-    for key, vid, enabled in [
-        ("hardware_model", MODULE_VID, False),
-        ("hardware_revision", MODULE_VID, False),
-        ("firmware_version", MODULE_VID, False),
-        ("bus_errors", MODULE_VID, True),
-        ("host", MASTER_VID, False),
+    for key, vid in [
+        *((key, MODULE_VID) for key in MODULE_SENSORS),
+        ("host", MASTER_VID),
     ]:
+        enabled = key in ENABLED_SENSORS
         entity_id = sensor_id(hass, key, vid)
         assert entity_id, key
         entry = registry.async_get(entity_id)

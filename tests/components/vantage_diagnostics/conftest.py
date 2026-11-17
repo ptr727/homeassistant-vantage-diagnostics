@@ -35,25 +35,26 @@ def auto_enable_custom_integrations(enable_custom_integrations: None) -> None:
     """Let Home Assistant load the integration from custom_components."""
 
 
+def patch_enabled_default(enabled: bool) -> Any:
+    """Patch whether every entity starts enabled, whatever its own default."""
+    return patch(
+        "homeassistant.helpers.entity.Entity.entity_registry_enabled_default",
+        return_value=enabled,
+        new_callable=PropertyMock,
+    )
+
+
 @pytest.fixture
 def entity_registry_enabled_by_default() -> Generator[None]:
     """Enable every entity, including those disabled by default."""
-    with patch(
-        "homeassistant.helpers.entity.Entity.entity_registry_enabled_default",
-        return_value=True,
-        new_callable=PropertyMock,
-    ):
+    with patch_enabled_default(True):
         yield
 
 
 @pytest.fixture
 def entity_registry_disabled_by_default() -> Generator[None]:
     """Disable every entity, including those enabled by default, so nothing reads the bus."""
-    with patch(
-        "homeassistant.helpers.entity.Entity.entity_registry_enabled_default",
-        return_value=False,
-        new_callable=PropertyMock,
-    ):
+    with patch_enabled_default(False):
         yield
 
 
@@ -300,6 +301,14 @@ async def init_integration(
     await hass.config_entries.async_setup(config_entry.entry_id)
     await hass.async_block_till_done(wait_background_tasks=True)
     return config_entry
+
+
+@pytest.fixture
+def forget_setup_lookup(
+    init_integration: MockConfigEntry, enclosure_lookup: AsyncMock
+) -> None:
+    """Forget the enclosure lookup the bus read at setup made, so a test counts only its own."""
+    enclosure_lookup.reset_mock()
 
 
 @pytest.fixture
