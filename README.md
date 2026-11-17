@@ -121,8 +121,9 @@ A module online or offline entry also updates that module's connectivity sensor 
 Every entity has the diagnostic entity category and joins a device the stock integration owns, so it shows on that device's page.
 The fault signals start enabled: each module's connectivity and bus error sensors, and the event stream sensor.
 The inventory sensors start disabled, to keep the device pages tidy: hardware model, hardware revision, firmware version and host.
-While a module's connectivity or bus error sensor is enabled, they add no polling, since the module sensors all read the same reply.
-The host comes from the stock entry.
+The hardware model, hardware revision and firmware version sensors read the same reply as the module fault sensors.
+So while a module's connectivity or bus error sensor is enabled, they add no polling.
+The host sensor never reads the bus, since the host comes from the stock entry.
 Enabling any entity reloads the entry about 30 seconds later, which reads the bus once more while a module entity is enabled.
 Enable an inventory sensor from its device page.
 
