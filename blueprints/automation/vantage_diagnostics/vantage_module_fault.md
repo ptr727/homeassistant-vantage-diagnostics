@@ -118,7 +118,9 @@ The stock line power sensors start disabled, so enable the ones to watch first.
 
 ## Troubleshooting Example: A Tripped Module Breaker
 
-This example assumes the program is set up as above, with **Trip side effects** off and the other inputs at their defaults.
+This example assumes the program is set up as above.
+It also assumes an action that sends a notification, such as the one under [Actions and Variables](#actions-and-variables).
+The other inputs keep their defaults, so **Trip side effects** is off.
 
 ### What a Trip Reports
 
@@ -155,7 +157,8 @@ While the module has no power, its stock line power and current sensors read `-0
 That is the marker for a sensor that is not reporting, not a reading.
 The stock module temperature sensor reads the same marker in degrees Celsius.
 In Fahrenheit that shows as about 30.2 °F, which looks like a real temperature.
-The fault report shows such a sensor as null.
+The fault report holds the readings taken when the fault started.
+So a line that has just lost power may still show its last power there, since its sensor reports the loss later.
 
 ### Investigating After the Fact
 
@@ -163,7 +166,7 @@ The fault report shows such a sensor as null.
 1. Read its **Last fault** sensor, which shows when the fault started, the missing line feed and the outage.
 1. Read the history of its **Connectivity** and **Bus errors** sensors, which shows each trip and reset.
 1. Call `vantage_diagnostics.get_fault_report` with no `module_id`, which returns the report of every module that has faulted.
-1. Read the module's report: each line's last reading, each load with its level and when it last changed, and the timeline before the fault.
+1. Read the module's report: each line's reading at the fault, each load's level and when it last turned on and off, and the timeline.
 1. Call `vantage_diagnostics.get_system_log` with a `limit` that reaches back to the trip, and find the warning and the `Module Offline` and `Module Online` entries.
 1. Call `vantage_diagnostics.get_module_status`, and confirm that every module is back on its bus.
 
@@ -171,8 +174,12 @@ Each service is described under [Services][readme-services] in the README.
 
 ### When the Same Module Trips Again
 
-Compare the module's fault reports.
-Each `timeline` shows the triggers and load changes in the 30 minutes before its fault, such as a scene that switched loads off.
+The integration keeps only the last fault report of each module, so a later trip replaces it.
+So save each report before the next trip, such as by calling `vantage_diagnostics.get_fault_report` after each one.
+Then compare the saved reports.
+Each `timeline` shows the triggers and load changes before its fault, such as a scene that switched loads off.
+It reaches back at most 30 minutes and keeps at most the 60 rows nearest the fault, as the [`timeline`][readme-module-fault] field describes.
+So a busy program's timeline covers less time, and a missing row is no proof that nothing happened.
 A load that changed level just before several trips is the first to suspect.
 Where each line feed has a breaker of its own, the named line feed says which breaker tripped.
 Then repeated trips on one line feed point at the loads on it.
@@ -189,6 +196,7 @@ So before a write, save a copy with `vantage_diagnostics.get_trigger_history` an
 
 [readme]: ../../../README.md
 [readme-events]: ../../../README.md#events
+[readme-module-fault]: ../../../README.md#vantage_module_fault
 [readme-services]: ../../../README.md#services
 
 <!-- External -->
