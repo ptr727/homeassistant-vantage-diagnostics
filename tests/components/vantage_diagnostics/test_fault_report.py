@@ -390,6 +390,7 @@ async def test_trip_with_named_line_feed(
 @pytest.mark.usefixtures("init_integration")
 async def test_trip_seen_only_as_a_bus_drop(
     hass: HomeAssistant,
+    client: FakeClient,
     fake_stream: type[FakeEventStream],
     modules_read: AsyncMock,
     freezer: FrozenDateTimeFactory,
@@ -400,6 +401,10 @@ async def test_trip_seen_only_as_a_bus_drop(
     dropped = dt_util.utcnow()
 
     await bus_drop(hass, stream, modules_read)
+
+    # The module's sensors stop reporting during the hold
+    power_b = client.omni_sensors.get(POWER_B_VID)
+    power_b.level = Decimal("-0.999")
     freezer.tick(timedelta(seconds=OFFLINE_HOLD - 1))
     async_fire_time_changed(hass)
     await hass.async_block_till_done(wait_background_tasks=True)
@@ -416,6 +421,8 @@ async def test_trip_seen_only_as_a_bus_drop(
     assert report["offline"] == dropped.isoformat()
     assert report["line_feed"] is None
     assert report["line_feed_name"] is None
+    # Read as the module left the bus, not when the hold ended
+    assert report["lines"][1]["power"] == 120.5
     # A model whose channel map this doesn't know lists its loads by channel alone
     assert [(load["channel"], load["line_feed"]) for load in report["loads"]] == [
         (1, None),

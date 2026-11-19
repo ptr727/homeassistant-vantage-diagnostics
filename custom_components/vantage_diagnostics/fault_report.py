@@ -119,8 +119,10 @@ class FaultTracker:
         # When each module last joined or left the bus, keyed by VID
         self._changed: dict[int, dt.datetime] = {}
 
-        # Modules off the bus, keyed by VID, with the time they left and the hold that starts a fault
-        self._holds: dict[int, tuple[dt.datetime, CALLBACK_TYPE]] = {}
+        # Modules off the bus, keyed by VID, with when each left, its hold, and its report as it stood then
+        self._holds: dict[
+            int, tuple[dt.datetime, CALLBACK_TYPE, dict[str, Any] | None]
+        ] = {}
 
         # Side effects seen while a module's hold runs, which join the fault the hold starts
         self._pending: dict[int, list[dict[str, Any]]] = {}
@@ -172,6 +174,7 @@ class FaultTracker:
         line_feed: int | None = None,
         started: dt.datetime | None = None,
         side_effects: list[dict[str, Any]] | None = None,
+        snapshot: dict[str, Any] | None = None,
     ) -> None:
         """Start a fault on a module, unless one is already in progress, which then takes the side effects given."""
         if (module := self._module(vid)) is None:
@@ -185,7 +188,7 @@ class FaultTracker:
             return
 
         started = started or now
-        report = self._build(module, signal, line_feed, started)
+        report = snapshot or self._build(module, signal, line_feed, started)
         report["side_effects"] = side_effects or []
         self._reports[vid] = report
         self._updated(vid)
@@ -304,12 +307,15 @@ class FaultTracker:
                 return
 
             # Off the bus alone starts a fault only once it outlasts the hold
+            # The readings are taken as the module leaves, since its sensors stop reporting soon after
             self._cancel_hold(vid)
+            dropped = self._module(vid)
             self._holds[vid] = (
                 now,
                 async_call_later(
                     self._hass, OFFLINE_HOLD, partial(self._hold_expired, vid)
                 ),
+                self._build(dropped, SIGNAL_OFFLINE, None, now) if dropped else None,
             )
             return
 
@@ -343,14 +349,16 @@ class FaultTracker:
         if (held := self._holds.pop(vid, None)) is None:
             return
 
-        left, _cancel = held
+        left, _cancel, snapshot = held
         pending = self._pending.pop(vid, [])
         if (module := self._module(vid)) is None or self._module_status.data.is_online(
             module
         ) is not False:
             return
 
-        self.async_signal(vid, SIGNAL_OFFLINE, started=left, side_effects=pending)
+        self.async_signal(
+            vid, SIGNAL_OFFLINE, started=left, side_effects=pending, snapshot=snapshot
+        )
         if (report := self._reports.get(vid)) is not None and report["offline"] is None:
             report["offline"] = left.isoformat()
             self._updated(vid)
@@ -519,22 +527,25 @@ class FaultTracker:
         first = started - TIMELINE_WINDOW
         last = started + TIMELINE_SLACK
 
-        def within(when: dt.datetime | None) -> bool:
-            return when is not None and first <= when <= last
+        def within(when: dt.datetime) -> bool:
+            return first <= when <= last
+
+        # Each kept entry's time as parsed here, keyed by the text the described entry carries
+        times: dict[str | None, dt.datetime] = {}
 
         # Only the rows nearest the fault are kept, so only those are described
         def select(log: list[EventLogEntry]) -> list[EventLogEntry]:
-            kept = [item for item in log if within(controller_time(item.timestamp))]
+            kept: list[EventLogEntry] = []
+            for item in log:
+                when = controller_time(item.timestamp)
+                if when is not None and within(when):
+                    times[item.time_stamp] = when
+                    kept.append(item)
             return kept[-TIMELINE_MAX_ROWS:]
 
         rows: list[tuple[dt.datetime, dict[str, Any]]] = []
         for trigger in await read_trigger_history(self._entry, select, errors):
-            if (
-                when := controller_time(
-                    EventLogEntry(time_stamp=trigger["time"]).timestamp
-                )
-            ) is None:
-                continue
+            when = times[trigger["time"]]
             rows.append(
                 (
                     when,
