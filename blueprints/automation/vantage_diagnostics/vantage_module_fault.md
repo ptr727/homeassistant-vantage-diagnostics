@@ -68,6 +68,8 @@ They read back in range once the breaker is reset.
 The integration flags each of those triggers with `side_effect: true`.
 With **Trip side effects** off, such a trip sends one fault notification and one recovery notification.
 It sends no notification per monitored sensor.
+That needs a module sensor that reads the bus enabled, such as **Connectivity**, which starts enabled.
+With none enabled, the integration never sees the module leave its bus, so the trip reads as a fault on one line feed.
 A fault on one line feed that leaves the module on its bus sends no recovery notification, since the module never left its bus.
 When its breaker is reset more than 2 minutes after the fault, its sensors back in range are not flagged, so each one notifies.
 Turn off **Back in range** to drop those too.
