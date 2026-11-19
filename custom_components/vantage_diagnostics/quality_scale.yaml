@@ -58,7 +58,9 @@ rules:
   dynamic-devices: done
   entity-category: done
   entity-device-class: done
-  entity-disabled-by-default: done
+  entity-disabled-by-default:
+    status: exempt
+    comment: Every entity rarely changes and the module entities share one bus read, so none starts disabled.
   entity-translations: done
   exception-translations: done
   icon-translations: done
