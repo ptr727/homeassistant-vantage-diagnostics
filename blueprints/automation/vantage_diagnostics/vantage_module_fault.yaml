@@ -71,7 +71,7 @@ blueprint:
           name: Trip side effects
           description: >-
             Also notify on the range triggers a module fault causes, which the integration flags as side effects.
-            Off, a trip sends one fault notification rather than one more per monitored sensor.
+            Off, a trip that drops the module off its bus sends no notification per monitored sensor.
             The logbook shows them either way.
           default: false
           selector:

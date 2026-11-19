@@ -46,7 +46,7 @@ Without the range tasks, no out-of-range or back-in-range reading notifies.
 | **Line power sensors** | None | The stock line power sensors the stock fallback watches |
 | **Actions** | None | What to run, such as a notification |
 
-The blueprint keys off each trigger's `trigger_type`, never off task names, so it works with any program.
+The blueprint keys off each trigger's `trigger_type`, so it works with any program and needs no particular task names.
 
 ## What Notifies
 
