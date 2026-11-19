@@ -120,9 +120,7 @@ class FaultTracker:
         self._changed: dict[int, dt.datetime] = {}
 
         # Modules off the bus, keyed by VID, with when each left, its hold, and its report as it stood then
-        self._holds: dict[
-            int, tuple[dt.datetime, CALLBACK_TYPE, dict[str, Any] | None]
-        ] = {}
+        self._holds: dict[int, tuple[dt.datetime, CALLBACK_TYPE, dict[str, Any]]] = {}
 
         # Side effects seen while a module's hold runs, which join the fault the hold starts
         self._pending: dict[int, list[dict[str, Any]]] = {}
@@ -165,6 +163,13 @@ class FaultTracker:
         )
         entry.async_on_unload(self._cancel_holds)
         entry.async_on_unload(self._async_flush)
+
+        # A reload or restart cut these reports' history read short, before their event fired
+        for vid, report in self._reports.items():
+            if report["timeline"] is None:
+                entry.async_create_background_task(
+                    self._hass, self._complete(vid, report), "vantage_module_fault"
+                )
 
     @callback
     def async_signal(
@@ -309,13 +314,14 @@ class FaultTracker:
             # Off the bus alone starts a fault only once it outlasts the hold
             # The readings are taken as the module leaves, since its sensors stop reporting soon after
             self._cancel_hold(vid)
-            dropped = self._module(vid)
             self._holds[vid] = (
                 now,
                 async_call_later(
                     self._hass, OFFLINE_HOLD, partial(self._hold_expired, vid)
                 ),
-                self._build(dropped, SIGNAL_OFFLINE, None, now) if dropped else None,
+                self._build(
+                    cast(Module | ModuleGen2, module), SIGNAL_OFFLINE, None, now
+                ),
             )
             return
 
@@ -346,10 +352,8 @@ class FaultTracker:
 
     @callback
     def _hold_expired(self, vid: int, _now: dt.datetime) -> None:
-        if (held := self._holds.pop(vid, None)) is None:
-            return
-
-        left, _cancel, snapshot = held
+        # A hold cancelled when the module returned has no timer left to call this
+        left, _cancel, snapshot = self._holds.pop(vid)
         pending = self._pending.pop(vid, [])
         if (module := self._module(vid)) is None or self._module_status.data.is_online(
             module

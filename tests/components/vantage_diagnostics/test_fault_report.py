@@ -893,3 +893,46 @@ async def test_reports_saved_without_an_unload(
     assert hass_storage[key]["data"] == {
         str(MODULE_VID): (await fault_reports(hass))[0]
     }
+
+
+async def test_cut_short_report_fires_at_setup(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    fake_stream: type[FakeEventStream],
+    hass_storage: dict[str, Any],
+) -> None:
+    """Test that a report whose history read a restart cut short is read and fired once the entry loads."""
+    stored = {
+        "host": HOST,
+        "module_id": MODULE_VID,
+        "module_name": "Module 1",
+        "signal": "system_log",
+        "time": dt_util.utcnow().isoformat(),
+        "line_feed": 1,
+        "line_feed_name": "Line A",
+        "offline": None,
+        "recovered": None,
+        "outage": None,
+        "temperature": None,
+        "lines": [],
+        "loads": [],
+        "timeline": None,
+        "timeline_errors": None,
+        "side_effects": [],
+    }
+    hass_storage[storage_key(config_entry.entry_id)] = {
+        "version": 1,
+        "minor_version": 1,
+        "key": storage_key(config_entry.entry_id),
+        "data": {str(MODULE_VID): stored},
+    }
+    faults = async_capture_events(hass, EVENT_MODULE_FAULT)
+
+    config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert len(faults) == 1
+    assert faults[0].data["time"] == stored["time"]
+    assert faults[0].data["timeline"] == []
+    assert faults[0].data["timeline_errors"] == []

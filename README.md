@@ -151,7 +151,7 @@ The `get_fault_report` service returns the report as it stands now.
 | `temperature` | The module's temperature at the fault, in degrees Celsius, null where the sensor is not reporting |
 | `lines` | Each line feed's number, letter, name, and last `power` and `current` reading, null where the sensor is not reporting |
 | `loads` | Each load on the module, with its VID, name, `channel`, `line_feed` and last `level`. `last_on` and `last_off` are the UTC times it last turned on and off since the entry last loaded. `on_missing_line` marks the loads on the missing line feed |
-| `timeline` | The controller's triggers and the module's load level changes over the 30 minutes before the fault, oldest first. Each row has its UTC `time`, its offset `t` in seconds from the fault, and its `kind`, `trigger` or `load`. At most the 60 rows nearest the fault are kept. Null until the trigger history is read, and left null when a restart or reload cuts that read short |
+| `timeline` | The controller's triggers and the module's load level changes over the 30 minutes before the fault, oldest first. Each row has its UTC `time`, its offset `t` in seconds from the fault, and its `kind`, `trigger` or `load`. At most the 60 rows nearest the fault are kept. Null until the trigger history is read. A restart or reload that cuts that read short leaves it null until the entry loads again, which reads it then and fires the event |
 | `timeline_errors` | What could not be read for the timeline, each with its `host`, `master` and `error`. `master` is null for a failure that was not a master's. Empty when the whole history was read, so an empty `timeline` then means a quiet half hour. Null while `timeline` is |
 | `side_effects` | The range triggers attributed to the fault |
 
