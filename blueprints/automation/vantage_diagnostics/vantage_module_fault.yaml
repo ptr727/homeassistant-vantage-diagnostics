@@ -72,6 +72,7 @@ blueprint:
           description: >-
             Also notify on the range triggers a module fault causes, which the integration flags as side effects.
             Off, a trip that drops the module off its bus sends no notification per monitored sensor.
+            That needs a module sensor that reads the bus enabled, such as Connectivity.
             The logbook shows them either way.
           default: false
           selector:
