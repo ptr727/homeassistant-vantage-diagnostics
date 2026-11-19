@@ -301,10 +301,8 @@ class FaultTracker:
         if previous is not None:
             self._changed[vid] = now
 
+        # A module already off the bus when first read, as after a trip while Home Assistant was down, holds like one that just left
         if not online:
-            if previous is None:
-                return
-
             if report is not None and self._in_progress(vid, now):
                 if report["offline"] is None:
                     report["offline"] = now.isoformat()
@@ -371,6 +369,8 @@ class FaultTracker:
 
         pending = self._pending.pop(vid, [])
 
+        # Set before the signal, since the event can fire within it when the history read returns at once
+        snapshot["offline"] = left.isoformat()
         self.async_signal(
             vid, SIGNAL_OFFLINE, started=left, side_effects=pending, snapshot=snapshot
         )

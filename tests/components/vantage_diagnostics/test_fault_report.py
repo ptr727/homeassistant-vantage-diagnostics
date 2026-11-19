@@ -700,11 +700,11 @@ async def test_trip_again_soon_after_a_reset(
     await bus_drop(hass, stream, modules_read)
     freezer.tick(timedelta(seconds=6))
     await emit(hass, stream, trigger_line(POWER_A_VID, TriggerType.OUT_OF_RANGE))
+    assert await fault_reports(hass) == [first]
     freezer.tick(timedelta(seconds=OFFLINE_HOLD))
     async_fire_time_changed(hass)
     await hass.async_block_till_done(wait_background_tasks=True)
 
-    assert first["side_effects"] == []
     assert len(faults) == 2
     assert [effect["source_id"] for effect in faults[1].data["side_effects"]] == [
         POWER_A_VID
@@ -1012,3 +1012,28 @@ async def test_hold_waits_out_an_unreadable_enclosure(
 def module_status_module(entry: MockConfigEntry) -> Any:
     """Return the module the client holds."""
     return next(iter(entry.runtime_data.client.modules))
+
+
+async def test_module_off_the_bus_at_setup(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    fake_stream: type[FakeEventStream],
+    modules_read: AsyncMock,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Test that a module already off the bus at the first read, as after a trip while Home Assistant was down, still reports."""
+    faults = async_capture_events(hass, EVENT_MODULE_FAULT)
+    modules_read.return_value = []
+    config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done(wait_background_tasks=True)
+    first_read = dt_util.utcnow()
+
+    freezer.tick(timedelta(seconds=OFFLINE_HOLD + 1))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert len(faults) == 1
+    assert faults[0].data["signal"] == "offline"
+    assert faults[0].data["time"] == first_read.isoformat()
+    assert faults[0].data["offline"] == first_read.isoformat()

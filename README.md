@@ -137,6 +137,8 @@ The bus drop needs a connectivity, hardware, firmware or bus error sensor enable
 Any one of them, on any module, reads every module's enclosure.
 They all start enabled, and the **Last fault** sensor alone reads nothing.
 A hold that ends while the module's enclosure can't be read runs again until a read says whether the module is back.
+A module already off the bus at its first read after setup holds the same way.
+So a trip while Home Assistant was down still reports, timed from that read.
 
 The event fires once the timeline is read, carrying the report as it stands then.
 A trip's bus drop and side effects often arrive after that, so the event may lack them while the stored report has them.
@@ -223,6 +225,7 @@ A module missing from one read stays online until a second read confirms it.
 So a module re-announcing itself after a program write does not flicker off.
 The module entities keep their last values while a module is off the bus or its enclosure can't be read.
 They go unavailable while the event stream is down, or when no enclosure at all can be read.
+The **Last fault** sensor reads the stored report instead, so it stays available then.
 
 The event stream is a second Host Command session, apart from the stock integration's, and the trigger and system log events arrive on it.
 Its sensor turns off when the stream drops after setup.

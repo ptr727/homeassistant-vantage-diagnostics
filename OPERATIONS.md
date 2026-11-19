@@ -44,7 +44,7 @@ Every entity starts enabled.
 The module entities read the enclosure bus through one coordinator, which only polls while one of them is enabled.
 Since every entity starts enabled, a new entry polls from setup.
 The IP address sensor reads the event stream socket's peer at each connect, and keeps the last address while the stream is down.
-Every module entity goes unavailable while the event stream is down, or when no enclosure at all can be read.
+Every module entity but the last fault sensor goes unavailable while the event stream is down, or when no enclosure at all can be read.
 A module in an enclosure that can't be read keeps its last values, and its connectivity sensor turns unknown.
 The event stream sensor turns off when the stream drops after setup.
 If the stream can't connect at setup, the entry retries and every entity stays unavailable.
