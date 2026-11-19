@@ -21,6 +21,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 
 HOST = "192.0.2.10"
+PEER = "192.0.2.20"
 MODULE_VID = 102
 ENCLOSURE_VID = 201
 BUTTON_VID = 110
@@ -132,6 +133,33 @@ class FakeClient:
         return self.objects[vid]
 
 
+class FakeWriter:
+    """A stand-in for the stream writer of the event stream's socket."""
+
+    def __init__(self, peername: Any = (PEER, 3010)) -> None:
+        """Hold the peer the socket connects to."""
+        self.peername = peername
+
+    def get_extra_info(self, name: str) -> Any:
+        """Return the socket's peer name, the only extra info the integration reads."""
+        assert name == "peername"
+        return self.peername
+
+
+class FakeConnection:
+    """A stand-in for the event stream's connection, which the stream reopens on a reconnect."""
+
+    def __init__(self, supports_enhanced_log: bool) -> None:
+        """Connect the socket to the default peer."""
+        self.supports_enhanced_log = supports_enhanced_log
+        # Any, so the fake satisfies the protocol that types the real stream writer
+        self._writer: Any = FakeWriter()
+
+    def reopen(self, writer: FakeWriter | None) -> None:
+        """Replace the socket, or close it with None."""
+        self._writer = writer
+
+
 class FakeEventStream:
     """A stand-in for the companion's own EventStream."""
 
@@ -148,13 +176,14 @@ class FakeEventStream:
         self.peers_seen: list[Any] = []
         self.subscribers: dict[type, list[Callable[[Any], None]]] = defaultdict(list)
         self.unsubscribe = MagicMock()
+        self.connection = FakeConnection(self.supports_enhanced_log)
         FakeEventStream.instances.append(self)
 
-    async def start(self) -> SimpleNamespace:
+    async def start(self) -> FakeConnection:
         """Pretend to connect."""
         if self.start_error is not None:
             raise self.start_error
-        return SimpleNamespace(supports_enhanced_log=self.supports_enhanced_log)
+        return self.connection
 
     def subscribe_enhanced_log(
         self, callback: Callable[[Any], None], *log_types: str, peers: Any = ()

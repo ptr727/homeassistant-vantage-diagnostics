@@ -35,6 +35,7 @@ from .conftest import (
     MODULE_VID,
     TASK_VID,
     FakeClient,
+    FakeConnection,
     add_vantage_entry,
 )
 
@@ -387,7 +388,7 @@ async def test_two_controllers_are_merged(
             (),
             {
                 "start": AsyncMock(
-                    return_value=type("C", (), {"supports_enhanced_log": False})()
+                    return_value=FakeConnection(supports_enhanced_log=False)
                 ),
                 "stop": lambda self: None,
                 "subscribe": lambda self, *a: lambda: None,

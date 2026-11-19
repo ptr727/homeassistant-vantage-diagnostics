@@ -38,6 +38,9 @@
       },
       "host": {
         "name": "Host"
+      },
+      "ip_address": {
+        "name": "IP address"
       }
     }
   },
