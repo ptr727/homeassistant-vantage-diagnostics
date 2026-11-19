@@ -1,5 +1,6 @@
 """Tests for the module fault report, its events, sensor and service, and the side-effect tagging."""
 
+import asyncio
 from collections.abc import Generator, Sequence
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -429,11 +430,42 @@ async def test_trip_seen_only_as_a_bus_drop(
 @pytest.mark.usefixtures("init_integration")
 async def test_program_write_raises_no_report(
     hass: HomeAssistant,
+    init_integration: MockConfigEntry,
     fake_stream: type[FakeEventStream],
     modules_read: AsyncMock,
     freezer: FrozenDateTimeFactory,
 ) -> None:
-    """Test that a module back on the bus within the hold, as a program write leaves it, raises no report."""
+    """Test that a program write, which re-announces the modules and logs no drop, raises no report."""
+    faults = async_capture_events(hass, EVENT_MODULE_FAULT)
+    triggers = async_capture_events(hass, EVENT_TRIGGER)
+
+    # A read while the module is still to be re-announced misses it, then its online log brings it back
+    modules_read.return_value = []
+    await init_integration.runtime_data.module_status.async_refresh()
+    freezer.tick(timedelta(seconds=2))
+    await bus_return(hass, stream_of(fake_stream), modules_read)
+    freezer.tick(timedelta(seconds=OFFLINE_HOLD * 2))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert faults == []
+    assert await fault_reports(hass) == []
+
+    # The module never left the bus, so a sensor back in range then is a genuine reading
+    await emit(
+        hass, stream_of(fake_stream), trigger_line(POWER_A_VID, TriggerType.IN_RANGE)
+    )
+    assert trigger_data(triggers, POWER_A_VID)[-1]["side_effect"] is False
+
+
+@pytest.mark.usefixtures("init_integration")
+async def test_brief_drop_raises_no_report(
+    hass: HomeAssistant,
+    fake_stream: type[FakeEventStream],
+    modules_read: AsyncMock,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Test that a module back on the bus within the hold raises no report."""
     stream = stream_of(fake_stream)
     faults = async_capture_events(hass, EVENT_MODULE_FAULT)
     triggers = async_capture_events(hass, EVENT_TRIGGER)
@@ -580,7 +612,9 @@ async def test_timeline_failure_still_fires_the_report(
 
     assert len(faults) == 1
     assert faults[0].data["timeline"] == []
-    assert faults[0].data["timeline_errors"] == [{"host": HOST, "error": "boom"}]
+    assert faults[0].data["timeline_errors"] == [
+        {"host": HOST, "master": None, "error": "boom"}
+    ]
 
 
 @pytest.mark.usefixtures("init_integration")
@@ -618,7 +652,7 @@ async def test_side_effects_join_their_own_fault(
         POWER_A_VID
     ]
 
-    # Long after that one recovered, a program write's brief drop joins neither
+    # Long after that one recovered, a drop shorter than the hold joins neither
     await bus_return(hass, stream, modules_read)
     freezer.tick(timedelta(minutes=10))
     (later,) = await fault_reports(hass)
@@ -629,6 +663,71 @@ async def test_side_effects_join_their_own_fault(
     await emit(hass, stream, trigger_line(POWER_A_VID, TriggerType.IN_RANGE))
     assert trigger_data(triggers, POWER_A_VID)[-1]["side_effect"] is True
     assert await fault_reports(hass) == [later]
+
+
+@pytest.mark.usefixtures("init_integration")
+async def test_trip_again_soon_after_a_reset(
+    hass: HomeAssistant,
+    fake_stream: type[FakeEventStream],
+    modules_read: AsyncMock,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Test that a breaker reset onto a fault, which trips again at once, keeps each trip's side effects apart."""
+    stream = stream_of(fake_stream)
+    faults = async_capture_events(hass, EVENT_MODULE_FAULT)
+
+    # A whole-supply trip that only drops the module, reset after a minute
+    await bus_drop(hass, stream, modules_read)
+    freezer.tick(timedelta(seconds=OFFLINE_HOLD + 1))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done(wait_background_tasks=True)
+    await bus_return(hass, stream, modules_read)
+    (first,) = await fault_reports(hass)
+
+    # It trips again, and its sensors read out of range before the hold starts the second fault
+    freezer.tick(timedelta(seconds=60))
+    await bus_drop(hass, stream, modules_read)
+    freezer.tick(timedelta(seconds=6))
+    await emit(hass, stream, trigger_line(POWER_A_VID, TriggerType.OUT_OF_RANGE))
+    freezer.tick(timedelta(seconds=OFFLINE_HOLD))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert first["side_effects"] == []
+    assert len(faults) == 2
+    assert [effect["source_id"] for effect in faults[1].data["side_effects"]] == [
+        POWER_A_VID
+    ]
+
+
+@pytest.mark.usefixtures("init_integration")
+async def test_report_before_its_timeline_is_read(
+    hass: HomeAssistant,
+    fake_stream: type[FakeEventStream],
+    history_read: AsyncMock,
+) -> None:
+    """Test that a report whose trigger history is still being read says so, rather than reading as a quiet half hour."""
+    release = asyncio.Event()
+
+    async def slow_read(*args: Any, **kwargs: Any) -> list[EventLogEntry]:
+        await release.wait()
+        return []
+
+    history_read.side_effect = slow_read
+    faults = async_capture_events(hass, EVENT_MODULE_FAULT)
+
+    stream_of(fake_stream).emit_log(MISSING_FEED_LOG)
+    await hass.async_block_till_done()
+    (pending,) = await fault_reports(hass)
+    assert pending["timeline"] is None
+    assert pending["timeline_errors"] is None
+
+    # Once read, the report fires with what it read
+    release.set()
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert len(faults) == 1
+    assert faults[0].data["timeline"] == []
+    assert faults[0].data["timeline_errors"] == []
 
 
 async def test_removing_the_entry_removes_its_reports(

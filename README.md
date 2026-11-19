@@ -95,7 +95,7 @@ A button with no task assigned fires nothing.
 | `task_id`, `task_name` | The VID and name of the task it started |
 | `param1`, `param2` | The trigger's two parameters, whose meaning depends on its kind |
 | `entity_id` | The stock integration's entity for the source object, present only when it has one, such as a dry contact. A button has none |
-| `side_effect` | On an `out_of_range` or `in_range` trigger only, whether it is a side effect of a module fault rather than a genuine reading. See [`vantage_module_fault`](#vantage_module_fault) |
+| `side_effect` | On an `out_of_range` or `in_range` trigger only, whether the module losing or regaining power explains it rather than a genuine reading. See [`vantage_module_fault`](#vantage_module_fault) |
 
 For example, a press on a keypad button might fire `trigger_type: button_down`, `source_name: Button 2`, `source_path: [Button 2, Hall Keypad]` and `task_name: Hall Lights`.
 
@@ -133,8 +133,8 @@ The other signals of the same fault add nothing, since a trip raises all three w
 A fault lasts until the module is back on its bus.
 One whose module never drops off the bus ends 2 minutes after it started, so a later warning reports again.
 The `module_alert` trigger fires only when the Design Center program assigns a task to the module's Alert event.
-The bus drop needs at least one module entity enabled, since the bus is read only then.
-Every module entity starts enabled.
+The bus drop needs one of the module's connectivity, hardware, firmware or bus error sensors enabled, since only they read the bus.
+They all start enabled, and the **Last fault** sensor alone reads nothing.
 
 The event fires once the timeline is read, carrying the report as it stands then.
 A trip's bus drop and side effects often arrive after that, so the event may lack them while the stored report has them.
@@ -146,16 +146,17 @@ The `get_fault_report` service returns the report as it stands now.
 | `signal` | What started the fault: `system_log`, `module_alert` or `offline` |
 | `time` | When the fault started, in UTC. For a bus drop alone it is when the module dropped off |
 | `line_feed`, `line_feed_name` | The number and name of the missing line feed, null when the controller named none |
-| `offline` | When the module dropped off its bus, null while it is on it |
+| `offline` | When the module dropped off its bus during the fault, null until it does. It stays set once the module recovers |
 | `recovered`, `outage` | When the module came back on its bus, and the seconds since the fault started. Null until it recovers |
 | `temperature` | The module's temperature at the fault, in degrees Celsius, null where the sensor is not reporting |
 | `lines` | Each line feed's number, letter, name, and last `power` and `current` reading, null where the sensor is not reporting |
 | `loads` | Each load on the module, with its VID, name, `channel`, `line_feed` and last `level`. `last_on` and `last_off` are the UTC times it last turned on and off since the entry last loaded. `on_missing_line` marks the loads on the missing line feed |
-| `timeline` | The controller's triggers and the module's load level changes over the 30 minutes before the fault, oldest first. Each row has its UTC `time`, its offset `t` in seconds from the fault, and its `kind`, `trigger` or `load`. At most the 60 rows nearest the fault are kept |
-| `timeline_errors` | Each master whose trigger history could not be read, with its `host`, `master` and `error`. Empty when the whole history was read, so an empty `timeline` then means a quiet half hour |
+| `timeline` | The controller's triggers and the module's load level changes over the 30 minutes before the fault, oldest first. Each row has its UTC `time`, its offset `t` in seconds from the fault, and its `kind`, `trigger` or `load`. At most the 60 rows nearest the fault are kept. Null until the trigger history is read, and left null when a restart or reload cuts that read short |
+| `timeline_errors` | What could not be read for the timeline, each with its `host`, `master` and `error`. `master` is null for a failure that was not a master's. Empty when the whole history was read, so an empty `timeline` then means a quiet half hour. Null while `timeline` is |
 | `side_effects` | The range triggers attributed to the fault |
 
-A sensor reading is aiovantage's last value, so a line that lost power reads null rather than its last power.
+A sensor reading is the last value aiovantage holds when the fault starts.
+A line that has just lost power may still show its last power then, since its sensor reports the loss later.
 A load's level is what the controller commanded, not measured power, which the module measures per line feed only.
 Which channels a line feed powers depends on the module model.
 The integration knows the SDM-12, where each line feed powers three consecutive channels.
@@ -169,7 +170,11 @@ So each `out_of_range` and `in_range` `vantage_trigger` carries `side_effect`.
 An `out_of_range` trigger is a side effect when its module is off the bus, or a fault started on it in the last 2 minutes.
 An `in_range` trigger is a side effect when its module joined or left the bus in the last 5 minutes.
 It is also one when a fault started on the module in the last 2 minutes.
-A side effect is also added to the fault's `side_effects`.
+A side effect joins the `side_effects` of the fault it belongs to.
+That is a fault in progress, or the one a running hold goes on to start.
+For `in_range` it is also a fault recovered in the last 5 minutes.
+One that belongs to none, such as a sensor back in range after a drop shorter than the hold, is flagged and joins nothing.
+A fault keeps at most 50.
 An automation that drops each trigger with `side_effect: true` is left with the genuine readings.
 
 The report is kept across a restart, so a fault that spans one still recovers.
@@ -217,7 +222,7 @@ So a module re-announcing itself after a program write does not flicker off.
 The module entities keep their last values while a module is off the bus or its enclosure can't be read.
 They go unavailable while the event stream is down, or when no enclosure at all can be read.
 
-The event stream is a second Host Command session, apart from the stock integration's, and both events arrive on it.
+The event stream is a second Host Command session, apart from the stock integration's, and the trigger and system log events arrive on it.
 Its sensor turns off when the stream drops after setup.
 If the stream can't connect at setup, the entry retries and every entity stays unavailable.
 So an automation that alerts on it watches for both off and unavailable.

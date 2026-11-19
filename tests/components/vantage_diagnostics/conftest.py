@@ -93,6 +93,8 @@ def make_module(vid: int = MODULE_VID, name: str = "Module 1") -> SimpleNamespac
         vid=vid,
         name=name,
         master=1,
+        model="",
+        line_feed_table=[],
         parent=SimpleNamespace(vid=ENCLOSURE_VID, position=1),
     )
 

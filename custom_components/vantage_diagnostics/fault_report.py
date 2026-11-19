@@ -1,16 +1,15 @@
 """Build a report when a module faults, eg. when its breaker trips, and tag the triggers the fault causes."""
 
 from collections import deque
-from collections.abc import Sequence
 import copy
 import datetime as dt
 from decimal import Decimal
 from functools import partial
-from typing import Any
+from typing import Any, cast
 
 from aiovantage import Vantage
 from aiovantage.events import ObjectUpdated
-from aiovantage.objects import Load, SystemObject
+from aiovantage.objects import Load, Module, ModuleGen2, SystemObject
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
@@ -218,7 +217,8 @@ class FaultTracker:
 
         if (
             side_effect
-            and (side_effects := self._side_effects_of(vid, now)) is not None
+            and (side_effects := self._side_effects_of(vid, now, out_of_range))
+            is not None
         ):
             if len(side_effects) < MAX_SIDE_EFFECTS:
                 side_effects.append(
@@ -235,29 +235,33 @@ class FaultTracker:
         return side_effect
 
     def _side_effects_of(
-        self, vid: int, now: dt.datetime
+        self, vid: int, now: dt.datetime, out_of_range: bool
     ) -> list[dict[str, Any]] | None:
         """Return the side effects of the fault a side effect seen now belongs to, if any."""
         report = self._reports.get(vid)
-        if report is not None:
+        if report is not None and self._in_progress(vid, now):
             side_effects: list[dict[str, Any]] = report["side_effects"]
-            if self._in_progress(vid, now):
-                return side_effects
+            return side_effects
 
-            # A sensor back in range soon after its module recovered
-            if (recovered := report["recovered"]) is not None and (
-                now - dt.datetime.fromisoformat(recovered) <= CONNECTIVITY_WINDOW
-            ):
-                return side_effects
-
-        # Off the bus, before the hold starts a fault
+        # Off the bus, before the hold starts a fault, which a module tripping again soon after a reset is too
         if vid in self._holds:
             return self._pending.setdefault(vid, [])
 
+        # A sensor back in range soon after its module recovered
+        if (
+            not out_of_range
+            and report is not None
+            and (recovered := report["recovered"]) is not None
+            and now - dt.datetime.fromisoformat(recovered) <= CONNECTIVITY_WINDOW
+        ):
+            recovered_effects: list[dict[str, Any]] = report["side_effects"]
+            return recovered_effects
+
         return None
 
-    def _module(self, vid: int) -> SystemObject | None:
-        return self._vantage.modules.get(vid)
+    def _module(self, vid: int) -> Module | ModuleGen2 | None:
+        # The modules controller holds only these two types, though it is typed for any object
+        return cast(Module | ModuleGen2 | None, self._vantage.modules.get(vid))
 
     def _time(self, report: dict[str, Any]) -> dt.datetime:
         # Written by this tracker, so always a valid time
@@ -391,15 +395,15 @@ class FaultTracker:
 
     def _build(
         self,
-        module: SystemObject,
+        module: Module | ModuleGen2,
         signal: str,
         line_feed: int | None,
         started: dt.datetime,
     ) -> dict[str, Any]:
         """Return a module's report, as it stands when the fault starts."""
-        feeds: Sequence[Any] = getattr(module, "line_feed_table", None) or []
+        feeds = module.line_feed_table
         feed_name = (
-            getattr(feeds[line_feed - 1], "name", None)
+            feeds[line_feed - 1].name
             if line_feed is not None and 0 < line_feed <= len(feeds)
             else None
         )
@@ -412,15 +416,13 @@ class FaultTracker:
 
         def level(index: int) -> float | None:
             sensor = sensors.get(index)
-            return reading(getattr(sensor, "level", None))
+            return reading(sensor.level) if sensor is not None else None
 
         lines = [
             {
                 "line_feed": number,
                 "line": LINE_NAMES[number - 1],
-                "name": getattr(feeds[number - 1], "name", None)
-                if number <= len(feeds)
-                else None,
+                "name": feeds[number - 1].name if number <= len(feeds) else None,
                 "power": level(power),
                 "current": level(current),
             }
@@ -470,15 +472,16 @@ class FaultTracker:
             "temperature": level(TEMPERATURE_POSITION),
             "lines": lines,
             "loads": loads,
-            "timeline": [],
-            "timeline_errors": [],
+            # Null until the trigger history is read, and left null when that read is cut short
+            "timeline": None,
+            "timeline_errors": None,
             "side_effects": [],
         }
 
-    def _channels_per_feed(self, module: SystemObject) -> int | None:
+    def _channels_per_feed(self, module: Module | ModuleGen2) -> int | None:
         """Return how many channels each of a module's line feeds powers, or None for a model this doesn't know."""
         info = self._module_status.last_info.get(module.vid)
-        models = (getattr(module, "model", None), info.model if info else None)
+        models = (module.model, info.model if info else None)
         for model in models:
             for prefix, per_feed in CHANNELS_PER_FEED.items():
                 if model and model.upper().replace("-", "").startswith(prefix):
@@ -495,7 +498,10 @@ class FaultTracker:
         except Exception as err:  # noqa: BLE001
             # Still fire the report, since the fault matters more than its timeline
             LOGGER.exception("Failed to read the timeline of module %d's fault", vid)
-            errors.append({"host": self._vantage.host, "error": error_text(err)})
+            report["timeline"] = []
+            errors.append(
+                {"host": self._vantage.host, "master": None, "error": error_text(err)}
+            )
 
         report["timeline_errors"] = errors
         self._updated(vid)
@@ -520,7 +526,9 @@ class FaultTracker:
         rows: list[tuple[dt.datetime, dict[str, Any]]] = []
         for trigger in await read_trigger_history(self._entry, select, errors):
             if (
-                when := controller_time(dt_util.parse_datetime(trigger["time"]))
+                when := controller_time(
+                    EventLogEntry(time_stamp=trigger["time"]).timestamp
+                )
             ) is None:
                 continue
             rows.append(
