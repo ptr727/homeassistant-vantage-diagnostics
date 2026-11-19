@@ -2,18 +2,23 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import override
+import datetime as dt
+from typing import Any, override
 
 from aiovantage.objects import SystemObject
 
 from homeassistant.components.sensor import (
+    SensorDeviceClass,
     SensorEntity,
     SensorEntityDescription,
     SensorStateClass,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.util import dt as dt_util
 
 from .aiovantage_diag import ModuleInfo
 from .config_entry import VantageDiagnosticsConfigEntry
@@ -39,18 +44,15 @@ MODULE_SENSORS: tuple[VantageModuleSensorEntityDescription, ...] = (
     # The stock device's model is the Design Center object type, not the hardware
     VantageModuleSensorEntityDescription(
         key="hardware_model",
-        entity_registry_enabled_default=False,
         value_fn=lambda info: info.model,
     ),
     # Shows when a module was swapped for a newer revision of the same hardware
     VantageModuleSensorEntityDescription(
         key="hardware_revision",
-        entity_registry_enabled_default=False,
         value_fn=lambda info: info.revision,
     ),
     VantageModuleSensorEntityDescription(
         key="firmware_version",
-        entity_registry_enabled_default=False,
         value_fn=lambda info: info.version,
     ),
     # The controller only raises the count, each time the module loses and regains the bus
@@ -67,16 +69,22 @@ async def async_setup_entry(
     entry: VantageDiagnosticsConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Add the module sensors, and the host of the controller this integration connects to."""
+    """Add the module sensors, and the host and address of the controller this integration connects to."""
     if (controller := connected_controller(hass, entry)) is not None:
-        async_add_entities([VantageControllerHostEntity(entry, *controller)])
+        async_add_entities(
+            [
+                VantageControllerHostEntity(entry, *controller),
+                VantageControllerIpAddressEntity(entry, *controller),
+            ]
+        )
 
-    def build(
-        obj: SystemObject, device: dr.DeviceEntry
-    ) -> list[VantageModuleSensorEntity]:
+    def build(obj: SystemObject, device: dr.DeviceEntry) -> list[Entity]:
         return [
-            VantageModuleSensorEntity(entry, obj, device, description)
-            for description in MODULE_SENSORS
+            *(
+                VantageModuleSensorEntity(entry, obj, device, description)
+                for description in MODULE_SENSORS
+            ),
+            VantageModuleLastFaultEntity(entry, obj, device),
         ]
 
     async_add_module_entities(hass, entry, async_add_entities, build)
@@ -111,13 +119,62 @@ class VantageModuleSensorEntity(VantageModuleEntity, SensorEntity):  # pyright: 
         return self._value_fn(info)
 
 
-class VantageControllerHostEntity(VantageDiagnosticsEntity, SensorEntity):  # pyright: ignore[reportIncompatibleVariableOverride]
-    """Sensor reporting the host of the controller, which the stock integration no longer shows.
+class VantageModuleLastFaultEntity(VantageDiagnosticsEntity, SensorEntity):  # pyright: ignore[reportIncompatibleVariableOverride]
+    """Sensor reporting when a module last faulted, with a short summary of the fault.
 
-    Disabled by default.
+    The full report is in the fault event and the get_fault_report service, since it is too big for attributes.
     """
 
-    _attr_entity_registry_enabled_default = False
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+
+    def __init__(
+        self,
+        entry: VantageDiagnosticsConfigEntry,
+        obj: SystemObject,
+        device: dr.DeviceEntry,
+    ) -> None:
+        """Initialize a module's last fault sensor."""
+        self._attach(entry, obj.vid, "last_fault", device)
+        self._vid = obj.vid
+
+    @property
+    @override
+    def native_value(self) -> dt.datetime | None:  # pyright: ignore[reportIncompatibleVariableOverride]
+        # Unknown until the module first faults
+        if (report := self._entry.runtime_data.fault_tracker.report(self._vid)) is None:
+            return None
+
+        return dt_util.parse_datetime(report["time"])
+
+    @property
+    @override
+    def extra_state_attributes(self) -> dict[str, Any] | None:  # pyright: ignore[reportIncompatibleVariableOverride]
+        if (report := self._entry.runtime_data.fault_tracker.report(self._vid)) is None:
+            return None
+
+        return {
+            "signal": report["signal"],
+            "line_feed": report["line_feed"],
+            "line_feed_name": report["line_feed_name"],
+            "recovered": report["recovered"],
+            "outage": report["outage"],
+            "side_effects": len(report["side_effects"]),
+        }
+
+    @override
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                self._entry.runtime_data.fault_tracker.signal_updated(self._vid),
+                self.async_write_ha_state,
+            )
+        )
+
+
+class VantageControllerHostEntity(VantageDiagnosticsEntity, SensorEntity):  # pyright: ignore[reportIncompatibleVariableOverride]
+    """Sensor reporting the host of the controller as configured, a name or an address."""
 
     def __init__(
         self, entry: VantageDiagnosticsConfigEntry, vid: int, device: dr.DeviceEntry
@@ -125,3 +182,22 @@ class VantageControllerHostEntity(VantageDiagnosticsEntity, SensorEntity):  # py
         """Initialize the host sensor on the controller this integration connects to."""
         self._attach(entry, vid, "host", device)
         self._attr_native_value = entry.runtime_data.client.host
+
+
+class VantageControllerIpAddressEntity(VantageDiagnosticsEntity, SensorEntity):  # pyright: ignore[reportIncompatibleVariableOverride]
+    """Sensor reporting the address this integration's event stream connects to.
+
+    It replaces the IP address sensor the stock integration removed.
+    It keeps the last address while the stream is down.
+    """
+
+    def __init__(
+        self, entry: VantageDiagnosticsConfigEntry, vid: int, device: dr.DeviceEntry
+    ) -> None:
+        """Initialize the IP address sensor on the controller this integration connects to."""
+        self._attach(entry, vid, "ip_address", device)
+
+    @property
+    @override
+    def native_value(self) -> str | None:  # pyright: ignore[reportIncompatibleVariableOverride]
+        return self._entry.runtime_data.ip_address

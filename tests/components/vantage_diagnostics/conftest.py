@@ -18,9 +18,10 @@ from custom_components.vantage_diagnostics.const import (
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_SSL, CONF_USERNAME
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 
 HOST = "192.0.2.10"
+PEER = "192.0.2.20"
 MODULE_VID = 102
 ENCLOSURE_VID = 201
 BUTTON_VID = 110
@@ -70,6 +71,10 @@ class FakeController:
         """Iterate the objects."""
         return iter(self.objects)
 
+    def get(self, vid: int) -> Any:
+        """Return the object with the VID, or None."""
+        return next((obj for obj in self.objects if obj.vid == vid), None)
+
     def subscribe(self, event_type: type, callback: Callable[[Any], None]) -> MagicMock:
         """Record a subscription."""
         self.subscribers.append((event_type, callback))
@@ -88,6 +93,8 @@ def make_module(vid: int = MODULE_VID, name: str = "Module 1") -> SimpleNamespac
         vid=vid,
         name=name,
         master=1,
+        model="",
+        line_feed_table=[],
         parent=SimpleNamespace(vid=ENCLOSURE_VID, position=1),
     )
 
@@ -105,6 +112,8 @@ class FakeClient:
         self.masters = FakeController(
             [SimpleNamespace(vid=MASTER_VID, name="Controller", number=1)]
         )
+        self.loads = FakeController([])
+        self.omni_sensors = FakeController([])
         self.objects = {
             MODULE_VID: self.modules.objects[0],
             BUTTON_VID: SimpleNamespace(
@@ -132,6 +141,33 @@ class FakeClient:
         return self.objects[vid]
 
 
+class FakeWriter:
+    """A stand-in for the stream writer of the event stream's socket."""
+
+    def __init__(self, peername: Any = (PEER, 3010)) -> None:
+        """Hold the peer the socket connects to."""
+        self.peername = peername
+
+    def get_extra_info(self, name: str) -> Any:
+        """Return the socket's peer name, the only extra info the integration reads."""
+        assert name == "peername"
+        return self.peername
+
+
+class FakeConnection:
+    """A stand-in for the event stream's connection, which the stream reopens on a reconnect."""
+
+    def __init__(self, supports_enhanced_log: bool) -> None:
+        """Connect the socket to the default peer."""
+        self.supports_enhanced_log = supports_enhanced_log
+        # Any, so the fake satisfies the protocol that types the real stream writer
+        self._writer: Any = FakeWriter()
+
+    def reopen(self, writer: FakeWriter | None) -> None:
+        """Replace the socket, or close it with None."""
+        self._writer = writer
+
+
 class FakeEventStream:
     """A stand-in for the companion's own EventStream."""
 
@@ -148,13 +184,14 @@ class FakeEventStream:
         self.peers_seen: list[Any] = []
         self.subscribers: dict[type, list[Callable[[Any], None]]] = defaultdict(list)
         self.unsubscribe = MagicMock()
+        self.connection = FakeConnection(self.supports_enhanced_log)
         FakeEventStream.instances.append(self)
 
-    async def start(self) -> SimpleNamespace:
+    async def start(self) -> FakeConnection:
         """Pretend to connect."""
         if self.start_error is not None:
             raise self.start_error
-        return SimpleNamespace(supports_enhanced_log=self.supports_enhanced_log)
+        return self.connection
 
     def subscribe_enhanced_log(
         self, callback: Callable[[Any], None], *log_types: str, peers: Any = ()
@@ -239,6 +276,17 @@ def add_vantage_entry(
             name=obj.name,
         )
     return entry
+
+
+def last_fault_id(hass: HomeAssistant) -> str:
+    """Return the entity ID of the module's last fault sensor."""
+    entity_id = er.async_get(hass).async_get_entity_id(
+        "sensor",
+        DOMAIN,
+        f"{next(iter(hass.config_entries.async_entries('vantage'))).entry_id}:{MODULE_VID}:last_fault",
+    )
+    assert entity_id
+    return entity_id
 
 
 @pytest.fixture

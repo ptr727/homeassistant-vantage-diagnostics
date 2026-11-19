@@ -7,7 +7,7 @@ from homeassistant.helpers import entity_registry as er
 
 from .aiovantage_diag import TriggerReceived, TriggerType, subscribe_triggers
 from .config_entry import VantageDiagnosticsConfigEntry
-from .const import EVENT_TRIGGER
+from .const import EVENT_TRIGGER, SIGNAL_MODULE_ALERT
 from .helpers import enum_name
 from .names import ObjectNames
 from .ordered import OrderedWorker
@@ -63,6 +63,7 @@ def async_setup_triggers(
     vantage = entry.runtime_data.client
     names = entry.runtime_data.object_names
     stream = entry.runtime_data.stream
+    fault_tracker = entry.runtime_data.fault_tracker
 
     async def fire(trigger: TriggerReceived) -> None:
         payload = await describe_trigger(
@@ -78,6 +79,25 @@ def async_setup_triggers(
             hass, entry.runtime_data.vantage_entry_id, trigger.source
         ):
             payload["entity_id"] = entity_id
+
+        # A module that loses a line feed raises its alert, with the feed in param1
+        trigger_type = trigger.trigger_type
+        if trigger_type is TriggerType.MODULE_ALERT:
+            fault_tracker.async_signal(
+                trigger.source, SIGNAL_MODULE_ALERT, line_feed=trigger.param1 or None
+            )
+
+        # A module's sensors read out of range when it loses power, and back in range when it regains it
+        if trigger_type in (TriggerType.OUT_OF_RANGE, TriggerType.IN_RANGE):
+            parent = (await names.info(trigger.source)).parent
+            # Lets an automation watching some modules drop the other modules' sensors
+            payload["module_id"] = fault_tracker.async_module_id(parent)
+            payload["side_effect"] = fault_tracker.async_classify(
+                parent,
+                payload,
+                out_of_range=trigger_type is TriggerType.OUT_OF_RANGE,
+            )
+
         hass.bus.async_fire(EVENT_TRIGGER, {"host": vantage.host} | payload)
 
     # Fire in the order the controller reported, though some names need a lookup

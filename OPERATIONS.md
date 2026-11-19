@@ -27,28 +27,34 @@ The `scripts/setup` command enables the hook in the base clone.
 Every entity this integration adds has the diagnostic entity category and sits on a device the stock integration owns.
 A module entity's unique ID is `<stock entry ID>:<module VID>:<key>`, and a controller entity's is `<stock entry ID>:<master VID>:<key>`.
 
-| Key | Platform | Device | Enabled by default |
-| --- | --- | --- | --- |
-| `connectivity` | Binary sensor | Each module | Yes |
-| `hardware_model` | Sensor | Each module | No |
-| `hardware_revision` | Sensor | Each module | No |
-| `firmware_version` | Sensor | Each module | No |
-| `bus_errors` | Sensor | Each module | Yes |
-| `event_stream` | Binary sensor | The controller this integration connects to | Yes |
-| `host` | Sensor | The controller this integration connects to | No |
+Every entity starts enabled.
+
+| Key | Platform | Device |
+| --- | --- | --- |
+| `connectivity` | Binary sensor | Each module |
+| `hardware_model` | Sensor | Each module |
+| `hardware_revision` | Sensor | Each module |
+| `firmware_version` | Sensor | Each module |
+| `bus_errors` | Sensor | Each module |
+| `last_fault` | Sensor | Each module |
+| `event_stream` | Binary sensor | The controller this integration connects to |
+| `host` | Sensor | The controller this integration connects to |
+| `ip_address` | Sensor | The controller this integration connects to |
 
 The module entities read the enclosure bus through one coordinator, which only polls while one of them is enabled.
-The connectivity and bus error sensors start enabled, so a new entry polls from setup.
-Every module entity goes unavailable while the event stream is down, or when no enclosure at all can be read.
+Since every entity starts enabled, a new entry polls from setup.
+The IP address sensor reads the event stream socket's peer at each connect, and keeps the last address while the stream is down.
+Every module entity but the last fault sensor goes unavailable while the event stream is down, or when no enclosure at all can be read.
 A module in an enclosure that can't be read keeps its last values, and its connectivity sensor turns unknown.
 The event stream sensor turns off when the stream drops after setup.
 If the stream can't connect at setup, the entry retries and every entity stays unavailable.
 So an alert on the stream watches for both off and unavailable.
 The controller entities are added only when the stock integration has a device for the master this integration connects to.
+The last fault sensor reads the stored fault report and never polls.
 
 ### Checking a Module After a Swap
 
-1. Enable the module's **Hardware model**, **Hardware revision** and **Firmware version** sensors while the module still answers on the bus.
+1. Check that the module's **Hardware model**, **Hardware revision** and **Firmware version** sensors are enabled and hold values while the module still answers on the bus.
    A module already off the bus reports nothing, so its sensors stay unknown and `vantage_diagnostics.get_module_status` returns null for those fields.
    Their values rarely change, so the recorder holds a value only from the last change or restart, and purges it after its keep days.
    So also note what `vantage_diagnostics.get_module_status` returns for the module, as the baseline that outlasts the recorder.
@@ -78,10 +84,14 @@ It owns a second event stream for the trigger and system log lines, which the st
 - `names.py`: resolves object names, from the stock client or by request.
 - `triggers.py`, `system_log.py`, `ordered.py`: fire the `vantage_trigger` and `vantage_system_log` events in arrival order.
 - `module_status.py`: reads the enclosure buses for the module entities and the status service.
+  It tells the fault tracker when a module joins or leaves its bus.
+- `fault_report.py`: starts a module fault from the line feed warning, the module alert or a held bus drop.
+  It builds and stores the report, fires the fault and recovery events, and tags the range triggers a fault causes.
+  The reports are kept in the `vantage_diagnostics.fault_reports.<entry ID>` store, which `__init__.py` deletes when the entry is deleted.
 - `entity.py`: the base entities, which attach to the stock module and controller devices.
 - `binary_sensor.py`: the module connectivity sensors and the event stream sensor.
-- `sensor.py`: the module hardware, firmware and bus error sensors and the controller host sensor.
-- `diagnostic_services.py`, `module_status_service.py`: the response-only services.
+- `sensor.py`: the module hardware, firmware, bus error and last fault sensors and the controller host and IP address sensors.
+- `diagnostic_services.py`, `module_status_service.py`, `fault_report_service.py`: the response-only services.
 - `logbook.py`: describes the trigger and system log events.
   `triggers.py` adds the `entity_id` of the stock entity whose unique ID is the source VID, so that entity's logbook shows the trigger too.
 - `aiovantage_diag/`: protocol code vendored from loopj/aiovantage pull requests, always used instead of aiovantage's own.

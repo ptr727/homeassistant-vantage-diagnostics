@@ -7,7 +7,7 @@ from aiovantage.events import ObjectAdded
 from aiovantage.objects import SystemObject
 
 from homeassistant.const import EntityCategory
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import Entity
@@ -123,9 +123,6 @@ class VantageModuleEntity(
     Every module entity shares one bus poll, so more of them listening adds no polling.
     """
 
-    # Kept while the module is off the bus, when the controller no longer lists it
-    _last_info: ModuleInfo | None = None
-
     def __init__(
         self,
         entry: VantageDiagnosticsConfigEntry,
@@ -150,17 +147,7 @@ class VantageModuleEntity(
             and runtime_data.stock_loaded(self.hass)
         )
 
-    @override
-    async def async_added_to_hass(self) -> None:
-        await super().async_added_to_hass()
-        self._record_info()
-
-    @callback
-    @override
-    def _handle_coordinator_update(self) -> None:
-        self._record_info()
-        super()._handle_coordinator_update()
-
-    def _record_info(self) -> None:
-        if (info := self.coordinator.data.modules.get(self.obj.vid)) is not None:
-            self._last_info = info
+    @property
+    def _last_info(self) -> ModuleInfo | None:
+        """The module's last bus status, kept while it is off the bus, when the controller no longer lists it."""
+        return self.coordinator.last_info.get(self.obj.vid)

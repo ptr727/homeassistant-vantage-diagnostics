@@ -7,7 +7,7 @@ from homeassistant.core import HomeAssistant, callback
 
 from .aiovantage_diag import SysLogType, SystemLogReceived, subscribe_system_log
 from .config_entry import VantageDiagnosticsConfigEntry
-from .const import EVENT_SYSTEM_LOG, LOGGER
+from .const import EVENT_SYSTEM_LOG, LOGGER, SIGNAL_SYSTEM_LOG
 from .helpers import enum_name
 from .ordered import OrderedWorker
 
@@ -17,6 +17,9 @@ NOTABLE_TYPES = {SysLogType.WARNING, SysLogType.ERROR, SysLogType.FATAL}
 # Module bus changes are logged as information, eg. "Module Offline: 1.9 [120]"
 MODULE_LOG = re.compile(r"^Module (Offline|Online|Status)\b")
 MODULE_BUS_CHANGE = re.compile(r"^Module (Offline|Online)\b")
+
+# A module losing a line feed, eg. "[ALERT] Module 'Module 2' (VID:33) detected missing line feed 1"
+MISSING_LINE_FEED = re.compile(r"detected missing line feed (\d+)")
 
 # The object a log is about, eg. "(VID:120)" or "[120]"
 OBJECT_VID = re.compile(r"\(VID:(\d+)\)|\[(\d+)\]")
@@ -33,6 +36,14 @@ REPEAT_REMINDER = 3600.0
 NUMBER = re.compile(r"\d+")
 
 type Shape = tuple[str, str, tuple[str, ...]]
+
+
+def object_vid(message: str) -> int | None:
+    """Return the VID of the object a log message names, if it names one."""
+    if (match := OBJECT_VID.search(message)) is None:
+        return None
+
+    return int(match.group(1) or match.group(2))
 
 
 def is_notable(log: SystemLogReceived) -> bool:
@@ -88,8 +99,7 @@ def async_setup_system_log(
             "source": log.source,
             "message": log.message,
         }
-        if match := OBJECT_VID.search(log.message):
-            vid = int(match.group(1) or match.group(2))
+        if (vid := object_vid(log.message)) is not None:
             # Still fire the log when its object can't be named
             try:
                 name = await names.name(vid)
@@ -110,10 +120,16 @@ def async_setup_system_log(
         # A module dropped off or rejoined the bus, so apply it to its connectivity now and read the bus.
         # A program write logs each module coming back online in turn, and a read between two of those logs misses the modules still to come.
         if bus_change := MODULE_BUS_CHANGE.match(log.message):
-            vid_match = OBJECT_VID.search(log.message)
             entry.runtime_data.module_status.async_module_logged(
-                int(vid_match.group(1) or vid_match.group(2)) if vid_match else None,
-                bus_change.group(1) == "Online",
+                object_vid(log.message), bus_change.group(1) == "Online"
+            )
+
+        # The controller names the module and the line feed it lost
+        if (missing := MISSING_LINE_FEED.search(log.message)) and (
+            vid := object_vid(log.message)
+        ) is not None:
+            entry.runtime_data.fault_tracker.async_signal(
+                vid, SIGNAL_SYSTEM_LOG, line_feed=int(missing.group(1))
             )
 
         if is_noise(log, seen, time.monotonic()):

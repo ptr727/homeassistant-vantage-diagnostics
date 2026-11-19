@@ -15,10 +15,19 @@
       },
       "host": {
         "default": "mdi:ip-network"
+      },
+      "ip_address": {
+        "default": "mdi:ip"
+      },
+      "last_fault": {
+        "default": "mdi:flash-alert"
       }
     }
   },
   "services": {
+    "get_fault_report": {
+      "service": "mdi:flash-alert-outline"
+    },
     "get_module_status": {
       "service": "mdi:chip"
     },

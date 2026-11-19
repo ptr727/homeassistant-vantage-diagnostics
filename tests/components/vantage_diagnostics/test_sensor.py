@@ -12,6 +12,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.vantage_diagnostics.aiovantage_diag import ModuleInfo
 from custom_components.vantage_diagnostics.const import DOMAIN
+from custom_components.vantage_diagnostics.helpers import peer_address
 from custom_components.vantage_diagnostics.module_status import ModuleStatus
 from homeassistant.components.sensor import ATTR_STATE_CLASS, SensorStateClass
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, EntityCategory
@@ -24,8 +25,11 @@ from .conftest import (
     HOST,
     MASTER_VID,
     MODULE_VID,
+    PEER,
     FakeClient,
+    FakeConnection,
     FakeEventStream,
+    FakeWriter,
     make_module,
 )
 
@@ -35,8 +39,6 @@ MODULE_SENSORS = (
     "firmware_version",
     "bus_errors",
 )
-
-ENABLED_SENSORS = {"bus_errors"}
 
 FULL_INFO = ModuleInfo(
     address=1,
@@ -95,28 +97,24 @@ def full_info_read(modules_read: AsyncMock) -> AsyncMock:
 
 @pytest.mark.usefixtures("init_integration")
 async def test_enabled_by_default(hass: HomeAssistant) -> None:
-    """Test that the bus error sensor starts enabled and the inventory sensors disabled, all as diagnostics."""
+    """Test that every sensor starts enabled, as a diagnostic."""
     registry = er.async_get(hass)
     for key, vid in [
         *((key, MODULE_VID) for key in MODULE_SENSORS),
         ("host", MASTER_VID),
+        ("ip_address", MASTER_VID),
     ]:
-        enabled = key in ENABLED_SENSORS
         entity_id = sensor_id(hass, key, vid)
         assert entity_id, key
         entry = registry.async_get(entity_id)
         assert entry
         assert entry.translation_key == key
         assert entry.entity_category is EntityCategory.DIAGNOSTIC
-        if enabled:
-            assert entry.disabled_by is None, key
-            assert state_of(hass, key, vid) == "0"
-        else:
-            assert entry.disabled_by is er.RegistryEntryDisabler.INTEGRATION, key
-            assert hass.states.get(entity_id) is None
+        assert entry.disabled_by is None, key
+        assert hass.states.get(entity_id), key
 
 
-@pytest.mark.usefixtures("entity_registry_enabled_by_default", "full_info_read")
+@pytest.mark.usefixtures("full_info_read")
 async def test_module_sensors_report_the_bus_status(
     hass: HomeAssistant,
     init_integration: MockConfigEntry,
@@ -153,7 +151,6 @@ async def test_module_sensors_report_the_bus_status(
     assert state_of(hass, "bus_errors") == "4"
 
 
-@pytest.mark.usefixtures("entity_registry_enabled_by_default")
 @pytest.mark.parametrize("key", list(FIELDS))
 async def test_module_status_lacking_a_field(
     hass: HomeAssistant,
@@ -173,7 +170,6 @@ async def test_module_status_lacking_a_field(
         assert state_of(hass, other) == (STATE_UNKNOWN if other == key else value)
 
 
-@pytest.mark.usefixtures("entity_registry_enabled_by_default")
 async def test_module_status_with_only_a_vid(
     hass: HomeAssistant,
     config_entry: MockConfigEntry,
@@ -190,7 +186,6 @@ async def test_module_status_with_only_a_vid(
         assert state_of(hass, key) == STATE_UNKNOWN, key
 
 
-@pytest.mark.usefixtures("entity_registry_enabled_by_default")
 async def test_module_never_read_is_unknown(
     hass: HomeAssistant,
     config_entry: MockConfigEntry,
@@ -207,7 +202,7 @@ async def test_module_never_read_is_unknown(
         assert state_of(hass, key) == STATE_UNKNOWN, key
 
 
-@pytest.mark.usefixtures("entity_registry_enabled_by_default", "full_info_read")
+@pytest.mark.usefixtures("full_info_read")
 async def test_module_sensors_unavailable_while_stream_down(
     hass: HomeAssistant,
     init_integration: MockConfigEntry,
@@ -224,7 +219,6 @@ async def test_module_sensors_unavailable_while_stream_down(
     assert state_of(hass, "hardware_model") == "Example-Model"
 
 
-@pytest.mark.usefixtures("entity_registry_enabled_by_default")
 async def test_module_sensors_unavailable_when_no_enclosure_read(
     hass: HomeAssistant,
     init_integration: MockConfigEntry,
@@ -257,7 +251,7 @@ async def test_module_added_later_gets_sensors(
         assert sensor_id(hass, key, 103), key
 
 
-@pytest.mark.usefixtures("entity_registry_enabled_by_default", "init_integration")
+@pytest.mark.usefixtures("init_integration")
 async def test_host_sensor(hass: HomeAssistant) -> None:
     """Test that the controller's host shows on the controller this integration connects to."""
     assert state_of(hass, "host", MASTER_VID) == HOST
@@ -274,7 +268,48 @@ async def test_host_sensor(hass: HomeAssistant) -> None:
     assert entry.device_id == device.id
 
 
-@pytest.mark.usefixtures("entity_registry_enabled_by_default")
+@pytest.mark.usefixtures("init_integration")
+async def test_ip_address_sensor(hass: HomeAssistant) -> None:
+    """Test that the address the event stream connects to shows on the controller."""
+    entity_id = sensor_id(hass, "ip_address", MASTER_VID)
+    assert entity_id == "sensor.controller_ip_address"
+    assert state_of(hass, "ip_address", MASTER_VID) == PEER
+
+
+@pytest.mark.usefixtures("init_integration")
+async def test_ip_address_sensor_follows_the_stream(
+    hass: HomeAssistant, fake_stream: type[FakeEventStream]
+) -> None:
+    """Test that the address is kept while the stream is down, and read again on a reconnect."""
+    stream = fake_stream.instances[0]
+    stream.connection.reopen(None)
+    stream.emit(Disconnected())
+    await hass.async_block_till_done()
+    assert state_of(hass, "ip_address", MASTER_VID) == PEER
+
+    stream.connection.reopen(FakeWriter(("192.0.2.21", 3010)))
+    stream.emit(Reconnected())
+    await hass.async_block_till_done()
+    assert state_of(hass, "ip_address", MASTER_VID) == "192.0.2.21"
+
+
+@pytest.mark.parametrize(
+    ("writer", "address"),
+    [
+        (FakeWriter(), PEER),
+        (FakeWriter(("2001:db8::20", 3010, 0, 0)), "2001:db8::20"),
+        (FakeWriter(None), None),
+        (None, None),
+    ],
+    ids=["ipv4", "ipv6", "no_peer", "closed"],
+)
+def test_peer_address(writer: FakeWriter | None, address: str | None) -> None:
+    """Test reading the address from the socket, with no lookup of the configured host."""
+    connection = FakeConnection(supports_enhanced_log=True)
+    connection.reopen(writer)
+    assert peer_address(connection) == address
+
+
 async def test_host_sensor_unavailable_while_stock_entry_not_loaded(
     hass: HomeAssistant,
     init_integration: MockConfigEntry,
@@ -289,7 +324,6 @@ async def test_host_sensor_unavailable_while_stock_entry_not_loaded(
     assert state_of(hass, "host", MASTER_VID) == STATE_UNAVAILABLE
 
 
-@pytest.mark.usefixtures("entity_registry_enabled_by_default")
 @pytest.mark.parametrize("number", [2, None])
 async def test_no_controller_sensor_without_the_connected_master(
     hass: HomeAssistant,
@@ -308,7 +342,6 @@ async def test_no_controller_sensor_without_the_connected_master(
     assert sensor_id(hass, "hardware_model")
 
 
-@pytest.mark.usefixtures("entity_registry_enabled_by_default")
 async def test_no_controller_sensor_without_its_stock_device(
     hass: HomeAssistant,
     config_entry: MockConfigEntry,
