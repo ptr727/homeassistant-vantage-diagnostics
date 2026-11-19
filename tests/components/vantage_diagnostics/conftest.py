@@ -152,7 +152,8 @@ class FakeConnection:
     def __init__(self, supports_enhanced_log: bool) -> None:
         """Connect the socket to the default peer."""
         self.supports_enhanced_log = supports_enhanced_log
-        self._writer: FakeWriter | None = FakeWriter()
+        # Any, so the fake satisfies the protocol that types the real stream writer
+        self._writer: Any = FakeWriter()
 
     def reopen(self, writer: FakeWriter | None) -> None:
         """Replace the socket, or close it with None."""

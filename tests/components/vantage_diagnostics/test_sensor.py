@@ -307,7 +307,7 @@ def test_peer_address(writer: FakeWriter | None, address: str | None) -> None:
     """Test reading the address from the socket, with no lookup of the configured host."""
     connection = FakeConnection(supports_enhanced_log=True)
     connection.reopen(writer)
-    assert peer_address(connection) == address  # type: ignore[arg-type]
+    assert peer_address(connection) == address
 
 
 async def test_host_sensor_unavailable_while_stock_entry_not_loaded(
