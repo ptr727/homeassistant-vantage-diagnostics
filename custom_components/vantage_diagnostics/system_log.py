@@ -7,7 +7,7 @@ from homeassistant.core import HomeAssistant, callback
 
 from .aiovantage_diag import SysLogType, SystemLogReceived, subscribe_system_log
 from .config_entry import VantageDiagnosticsConfigEntry
-from .const import EVENT_SYSTEM_LOG, LOGGER
+from .const import EVENT_SYSTEM_LOG, LOGGER, SIGNAL_SYSTEM_LOG
 from .helpers import enum_name
 from .ordered import OrderedWorker
 
@@ -17,6 +17,9 @@ NOTABLE_TYPES = {SysLogType.WARNING, SysLogType.ERROR, SysLogType.FATAL}
 # Module bus changes are logged as information, eg. "Module Offline: 1.9 [120]"
 MODULE_LOG = re.compile(r"^Module (Offline|Online|Status)\b")
 MODULE_BUS_CHANGE = re.compile(r"^Module (Offline|Online)\b")
+
+# A module losing a line feed, eg. "[ALERT] Module 'Module 2' (VID:33) detected missing line feed 1"
+MISSING_LINE_FEED = re.compile(r"detected missing line feed (\d+)")
 
 # The object a log is about, eg. "(VID:120)" or "[120]"
 OBJECT_VID = re.compile(r"\(VID:(\d+)\)|\[(\d+)\]")
@@ -114,6 +117,16 @@ def async_setup_system_log(
             entry.runtime_data.module_status.async_module_logged(
                 int(vid_match.group(1) or vid_match.group(2)) if vid_match else None,
                 bus_change.group(1) == "Online",
+            )
+
+        # The controller names the module and the line feed it lost
+        if (missing := MISSING_LINE_FEED.search(log.message)) and (
+            vid_match := OBJECT_VID.search(log.message)
+        ):
+            entry.runtime_data.fault_tracker.async_signal(
+                int(vid_match.group(1) or vid_match.group(2)),
+                SIGNAL_SYSTEM_LOG,
+                line_feed=int(missing.group(1)),
             )
 
         if is_noise(log, seen, time.monotonic()):

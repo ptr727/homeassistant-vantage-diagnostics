@@ -39,6 +39,9 @@ REFRESH_COOLDOWN = 1.0
 # A "Module Offline" log reports it at once anyway.
 MISSING_CONFIRM_DELAY = 5.0
 
+# Called with the module, whether it was last known online, None before it was first known, and whether it is online now
+type TransitionListener = Callable[[SystemObject, bool | None, bool], None]
+
 
 @dataclass
 class ModuleStatus:
@@ -168,6 +171,14 @@ class ModuleStatusCoordinator(DataUpdateCoordinator[ModuleStatus]):
         self._held: dict[int, float] = {}
         self._cancel_confirm: CALLBACK_TYPE | None = None
 
+        # Whether each module was last known online, keyed by VID.
+        # An enclosure that can't be read leaves the last known state in place.
+        self._known: dict[int, bool] = {}
+        self._transition_listeners: list[TransitionListener] = []
+
+        # The last bus status each module reported, kept while it is off the bus
+        self.last_info: dict[int, ModuleInfo] = {}
+
     @callback
     @override
     def async_add_listener(
@@ -184,6 +195,41 @@ class ModuleStatusCoordinator(DataUpdateCoordinator[ModuleStatus]):
             )
 
         return remove
+
+    @callback
+    def async_add_transition_listener(
+        self, listener: TransitionListener
+    ) -> CALLBACK_TYPE:
+        """Call a listener each time a module joins or leaves the bus.
+
+        It is also called when a module's state is first known.
+        A transition listener doesn't count as a listener, so it never makes the coordinator read the bus.
+        """
+        self._transition_listeners.append(listener)
+
+        @callback
+        def remove() -> None:
+            self._transition_listeners.remove(listener)
+
+        return remove
+
+    @callback
+    @override
+    def async_update_listeners(self) -> None:
+        self.last_info |= self.data.modules
+        for module in self._vantage.modules:
+            if (online := self.data.is_online(module)) is None:
+                continue
+
+            previous = self._known.get(module.vid)
+            if online == previous:
+                continue
+
+            self._known[module.vid] = online
+            for listener in list(self._transition_listeners):
+                listener(module, previous, online)
+
+        super().async_update_listeners()
 
     @callback
     def async_refresh_if_listened(self) -> None:

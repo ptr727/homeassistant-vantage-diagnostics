@@ -106,6 +106,8 @@ class FakeClient:
         self.masters = FakeController(
             [SimpleNamespace(vid=MASTER_VID, name="Controller", number=1)]
         )
+        self.loads = FakeController([])
+        self.omni_sensors = FakeController([])
         self.objects = {
             MODULE_VID: self.modules.objects[0],
             BUTTON_VID: SimpleNamespace(

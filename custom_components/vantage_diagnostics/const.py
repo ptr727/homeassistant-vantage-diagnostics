@@ -16,6 +16,7 @@ CONF_VANTAGE_ENTRY_ID = "vantage_entry_id"
 SERVICE_GET_TRIGGER_HISTORY = "get_trigger_history"
 SERVICE_GET_SYSTEM_LOG = "get_system_log"
 SERVICE_GET_MODULE_STATUS = "get_module_status"
+SERVICE_GET_FAULT_REPORT = "get_fault_report"
 
 # Why a diagnostic service or the module status read left something unread
 UNLOADED = "Not read, the integration was unloaded"
@@ -23,3 +24,12 @@ UNLOADED = "Not read, the integration was unloaded"
 # Events keep the names the fork of the stock integration fired, so automations that listen for them keep working
 EVENT_TRIGGER = "vantage_trigger"
 EVENT_SYSTEM_LOG = "vantage_system_log"
+
+# A module fault, carrying the full report, and the module back on its bus
+EVENT_MODULE_FAULT = "vantage_module_fault"
+EVENT_MODULE_RECOVERED = "vantage_module_recovered"
+
+# What started a module fault
+SIGNAL_MODULE_ALERT = "module_alert"
+SIGNAL_SYSTEM_LOG = "system_log"
+SIGNAL_OFFLINE = "offline"

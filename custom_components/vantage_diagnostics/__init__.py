@@ -34,6 +34,8 @@ from .config_entry import (
 )
 from .const import CONF_VANTAGE_ENTRY_ID, DOMAIN, LOGGER, VANTAGE_DOMAIN
 from .diagnostic_services import async_register_diagnostic_services
+from .fault_report import FaultTracker
+from .fault_report_service import async_register_fault_report_service
 from .helpers import error_text, peer_address
 from .module_status import ModuleStatusCoordinator
 from .module_status_service import async_register_module_status_service
@@ -56,6 +58,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Register the response-only diagnostic services."""
     async_register_diagnostic_services(hass)
     async_register_module_status_service(hass)
+    async_register_fault_report_service(hass)
 
     return True
 
@@ -111,6 +114,8 @@ async def async_setup_entry(
     entry.async_on_unload(stream.stop)
     module_status = ModuleStatusCoordinator(hass, entry, client, names, rpc)
     entry.async_on_unload(rpc.async_shutdown)
+    fault_tracker = FaultTracker(hass, entry, client, module_status)
+    await fault_tracker.async_load()
     entry.runtime_data = VantageDiagnosticsData(
         client=client,
         stream=stream,
@@ -119,6 +124,7 @@ async def async_setup_entry(
         object_names=names,
         rpc=rpc,
         module_status=module_status,
+        fault_tracker=fault_tracker,
     )
 
     # Reload when the stock entry reloads, since its client is replaced and closed
@@ -147,6 +153,7 @@ async def async_setup_entry(
         ) from err
 
     entry.runtime_data.ip_address = peer_address(connection)
+    fault_tracker.async_start()
 
     # Both are only streamed through the enhanced log
     if connection.supports_enhanced_log:

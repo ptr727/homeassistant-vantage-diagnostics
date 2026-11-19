@@ -32,6 +32,8 @@ It installs through the Home Assistant Marketplace as a custom repository.
 - Module connectivity, hardware model, hardware revision, firmware version and bus error sensors, attached to the stock module devices.
 - Event stream, host and IP address sensors on the controller device.
 - The `get_trigger_history`, `get_system_log` and `get_module_status` response-only services.
+- A module fault report, fired as a `vantage_module_fault` event when a module loses a line feed or drops off its bus. A `vantage_module_recovered` event, a **Last fault** sensor per module and the `get_fault_report` service go with it.
+- A `side_effect` flag on each out-of-range and back-in-range trigger, telling a trip's side effects from genuine readings.
 
 See [Release History][history] for complete release notes and older versions.
 
@@ -66,14 +68,15 @@ If the stock integration is reloaded, this integration reloads with it.
 
 It adds the following, each described in its own section below:
 
-- **Events**: `vantage_trigger` and `vantage_system_log`, fired on the Home Assistant event bus.
+- **Events**: `vantage_trigger`, `vantage_system_log`, `vantage_module_fault` and `vantage_module_recovered`, fired on the Home Assistant event bus.
 - **Entities**: diagnostic sensors on the stock integration's module and controller devices.
-- **Services**: three response-only services that read the controller's trigger history, system log and module status.
+- **Services**: four response-only services that read the controller's trigger history, system log and module status, and return each module's last fault report.
 
 ## Events
 
-Both events arrive on this integration's own event stream, which needs controller firmware with the enhanced log.
+The trigger and system log events arrive on this integration's own event stream, which needs controller firmware with the enhanced log.
 On older firmware the integration logs that no trigger or system log events will fire, and the rest of it still works.
+There, only a module dropping off its bus starts a module fault.
 Each event carries the `host` of the controller this integration connects to.
 On a project with several masters, the stream also carries the other masters' events, and they carry that same `host`.
 They keep the names the earlier fork of the stock integration fired, so automations written for that fork keep working.
@@ -92,6 +95,7 @@ A button with no task assigned fires nothing.
 | `task_id`, `task_name` | The VID and name of the task it started |
 | `param1`, `param2` | The trigger's two parameters, whose meaning depends on its kind |
 | `entity_id` | The stock integration's entity for the source object, present only when it has one, such as a dry contact. A button has none |
+| `side_effect` | On an `out_of_range` or `in_range` trigger only, whether it is a side effect of a module fault rather than a genuine reading. See [`vantage_module_fault`](#vantage_module_fault) |
 
 For example, a press on a keypad button might fire `trigger_type: button_down`, `source_name: Button 2`, `source_path: [Button 2, Hall Keypad]` and `task_name: Hall Lights`.
 
@@ -116,10 +120,72 @@ A burst of warnings of one shape fires once, then once an hour while the burst c
 The logbook shows each one as `Vantage`, with its type and message.
 A module online or offline entry also updates that module's connectivity sensor at once.
 
+### `vantage_module_fault`
+
+Fired when a module faults, such as when its breaker trips, carrying a report of the module's state at the fault.
+A fault starts with whichever of these comes first:
+
+- The controller's system log warning that the module detected a missing line feed. The `signal` is `system_log`.
+- The module's `module_alert` trigger, which the controller raises with the missing line feed in `param1`. The `signal` is `module_alert`.
+- The module dropping off its bus and staying off for 30 seconds. The `signal` is `offline`. The hold keeps a program write, which re-announces each module within a few seconds, from raising a report.
+
+The other signals of the same fault add nothing, since a trip raises all three within seconds.
+A fault lasts until the module is back on its bus.
+One whose module never drops off the bus ends 2 minutes after it started, so a later warning reports again.
+The `module_alert` trigger fires only when the Design Center program assigns a task to the module's Alert event.
+The bus drop needs the module's connectivity sensor enabled, which it is by default.
+
+| Field | Meaning |
+| --- | --- |
+| `module_id`, `module_name` | The VID and name of the module |
+| `signal` | What started the fault: `system_log`, `module_alert` or `offline` |
+| `time` | When the fault started, in UTC. For a bus drop alone it is when the module dropped off |
+| `line_feed`, `line_feed_name` | The number and name of the missing line feed, null when the controller named none |
+| `offline` | When the module dropped off its bus, null while it is on it. The event fires before a trip drops the module, so this is null in the event and set in the stored report |
+| `recovered`, `outage` | When the module came back on its bus, and the seconds since the fault started. Null in the event, and set in the stored report once it recovers |
+| `temperature` | The module's temperature at the fault, in degrees Celsius, null where the sensor is not reporting |
+| `lines` | Each line feed's number, letter, name, and last `power` and `current` reading, null where the sensor is not reporting |
+| `loads` | Each load on the module, with its VID, name, `channel`, `line_feed` and last `level`. `last_on` and `last_off` are the UTC times it last turned on and off since Home Assistant started. `on_missing_line` marks the loads on the missing line feed |
+| `timeline` | The controller's triggers and the module's load level changes over the 30 minutes before the fault, oldest first. Each row has its UTC `time`, its offset `t` in seconds from the fault, and its `kind`, `trigger` or `load`. At most the 60 rows nearest the fault are kept |
+| `side_effects` | The range triggers attributed to the fault. Empty in the event, since they arrive after it, and filled in the stored report |
+
+A sensor reading is aiovantage's last value, so a line that lost power reads null rather than its last power.
+A load's level is what the controller commanded, not measured power, which the module measures per line feed only.
+Which channels a line feed powers depends on the module model.
+The integration knows the SDM-12, where each line feed powers three consecutive channels.
+A module of another model lists its loads by channel, with a null `line_feed`.
+The timeline reads the controller's whole trigger history once per fault, and takes the controller's clock to be in Home Assistant's time zone.
+A load change shows only if it happened while Home Assistant was running.
+
+When a module loses power, each of its range-monitored sensors raises an out-of-range trigger, 6 to 36 seconds after the fault starts.
+So each `out_of_range` and `in_range` `vantage_trigger` carries `side_effect`.
+An `out_of_range` trigger is a side effect when its module is off the bus, or a fault started on it in the last 2 minutes.
+An `in_range` trigger is a side effect when its module joined or left the bus in the last 5 minutes.
+It is also one when a fault started on the module in the last 2 minutes.
+A side effect is also added to the fault's `side_effects`.
+An automation that drops each trigger with `side_effect: true` is left with the genuine readings.
+
+The report is kept across a restart, so a fault that spans one still recovers.
+The **Last fault** sensor and the `get_fault_report` service read the stored report.
+
+### `vantage_module_recovered`
+
+Fired when a faulted module comes back on its bus, such as when its breaker is reset.
+A module that came back while Home Assistant was down recovers at the first bus read after the restart.
+Its outage is then measured up to that read.
+
+| Field | Meaning |
+| --- | --- |
+| `module_id`, `module_name` | The VID and name of the module |
+| `time` | When the fault started, as in the fault event |
+| `recovered` | When the module came back on its bus, in UTC |
+| `outage` | The seconds from the fault's start to the module's return |
+
 ## Entities
 
 Every entity has the diagnostic entity category and joins a device the stock integration owns, so it shows on that device's page.
 Every entity starts enabled, since its value rarely changes and the module entities share one bus read.
+The **Last fault** sensor never reads the bus.
 The hardware model, hardware revision and firmware version sensors read the same reply as the connectivity and bus error sensors.
 So while a module's connectivity or bus error sensor is enabled, they add no polling.
 The host and IP address sensors never read the bus.
@@ -132,6 +198,7 @@ Re-enabling a disabled entity reloads the entry about 30 seconds later, which re
 | **Hardware revision** | Each module | The hardware revision the module reports, which changes when a module is swapped for a newer revision of the same hardware |
 | **Firmware version** | Each module | The firmware version the module reports |
 | **Bus errors** | Each module | How many times the module lost and regained the bus. The controller only raises this count, so the sensor has the `total_increasing` state class |
+| **Last fault** | Each module | When the module last faulted, unknown until it first does. Its attributes summarize the fault: `signal`, `line_feed`, `line_feed_name`, `recovered`, `outage`, and the count of `side_effects`. The full report is too big for attributes, so it is in the event and the service |
 | **Event stream** | The controller | Whether this integration's own event stream is connected |
 | **Host** | The controller | The host both integrations connect to, as configured in the stock entry, a host name or an address |
 | **IP address** | The controller | The address this integration's event stream connects to, read from its socket rather than looked up. It replaces the IP address sensor the stock integration removed. It keeps the last address while the stream is down |
@@ -163,9 +230,11 @@ The module status service lists every module even when no enclosure could be rea
 | `vantage_diagnostics.get_trigger_history` | `limit`, entries per master, default 100 | `entries`: the trigger history, newest last, with the `vantage_trigger` fields other than `entity_id`, plus `time` and `master`. Times are the controller's local time |
 | `vantage_diagnostics.get_system_log` | `limit`, entries per master, default 100 | `entries`: the system log, newest last, with `time`, `master`, `type`, `source` and `message` |
 | `vantage_diagnostics.get_module_status` | None | `modules`: each module with `module_id`, `module_name`, `online`, `address`, `model`, `revision`, `version`, `status` and `errors` |
+| `vantage_diagnostics.get_fault_report` | `module_id`, optional | `reports`: the last fault report of the module with that VID, or of every module that has faulted. Each has the fields of [`vantage_module_fault`](#vantage_module_fault) as they stand now |
 
 The module status service reads the bus whether or not any module entity is enabled.
 Its `online` is null for a module whose enclosure could not be read.
+The fault report service reads nothing from the controller, and returns an empty `reports` for a module that has not faulted.
 
 ## Installation
 
