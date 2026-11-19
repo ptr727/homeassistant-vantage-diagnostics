@@ -19,7 +19,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 from .aiovantage_diag import DiagnosticInterface, ModuleInfo
 from .const import DOMAIN, LOGGER, UNLOADED
-from .helpers import error_text
+from .helpers import error_text, parent_vid
 from .names import ObjectNames
 from .rpc import SharedRpc
 
@@ -68,15 +68,10 @@ class ModuleStatus:
         if (online := self.overrides.get(module.vid)) is not None:
             return online
 
-        if enclosure_vid(module) not in self.enclosures:
+        if parent_vid(module) not in self.enclosures:
             return None
 
         return module.vid in self.modules
-
-
-def enclosure_vid(module: SystemObject) -> int | None:
-    """Return the VID of the enclosure a module is mounted in."""
-    return getattr(getattr(module, "parent", None), "vid", None)
 
 
 async def read_module_status(
@@ -86,7 +81,7 @@ async def read_module_status(
     # Each enclosure is addressed by its position on its master
     enclosures: dict[int, int] = {}
     for module in vantage.modules:
-        if (vid := enclosure_vid(module)) is not None:
+        if (vid := parent_vid(module)) is not None:
             enclosures[vid] = module.master
 
     status = ModuleStatus()
@@ -284,7 +279,7 @@ class ModuleStatusCoordinator(DataUpdateCoordinator[ModuleStatus]):
             if (
                 vid in status.modules
                 or vid in status.overrides
-                or enclosure_vid(module) not in status.enclosures
+                or parent_vid(module) not in status.enclosures
             ):
                 continue
 

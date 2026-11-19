@@ -12,6 +12,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
 from .const import LOGGER
+from .helpers import parent_vid, position
 from .rpc import SharedRpc
 
 # Guards against a parent loop in the controller's configuration
@@ -77,12 +78,7 @@ class ObjectNames:
         # Objects the stock integration loaded, such as buttons, sensors, modules and tasks
         if vid in self._vantage:
             obj = self._vantage[vid]
-            parent = getattr(obj, "parent", None)
-            return ObjectInfo(
-                obj.name or f"VID {vid}",
-                getattr(parent, "vid", None),
-                getattr(parent, "position", None),
-            )
+            return ObjectInfo(obj.name or f"VID {vid}", parent_vid(obj), position(obj))
 
         # Other objects, such as timers and enclosures, fetched once and cached
         if (info := self._cache.get(vid)) is not None:
@@ -167,11 +163,8 @@ def _object_info(vid: int, obj: Any) -> ObjectInfo:
             _int(getattr(parent, "attributes", {}).get("Position")),
         )
 
-    parent = getattr(obj, "parent", None)
     return ObjectInfo(
-        getattr(obj, "name", None) or f"VID {vid}",
-        getattr(parent, "vid", None),
-        getattr(parent, "position", None),
+        getattr(obj, "name", None) or f"VID {vid}", parent_vid(obj), position(obj)
     )
 
 

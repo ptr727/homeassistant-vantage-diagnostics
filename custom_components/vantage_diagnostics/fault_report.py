@@ -2,6 +2,7 @@
 
 from collections import deque
 from collections.abc import Sequence
+import copy
 import datetime as dt
 from decimal import Decimal
 from functools import partial
@@ -26,7 +27,8 @@ from .const import (
     LOGGER,
     SIGNAL_OFFLINE,
 )
-from .diagnostic_services import ReadError, read_trigger_history
+from .diagnostic_services import ReadError, format_errors, read_trigger_history
+from .helpers import error_text, parent_vid, position
 from .module_status import ModuleStatusCoordinator
 
 # A module off the bus this long starts a fault on its own.
@@ -64,17 +66,17 @@ STORAGE_VERSION = 1
 SAVE_DELAY = 1.0
 
 
-def controller_time(text: str | None) -> dt.datetime | None:
+def storage_key(entry_id: str) -> str:
+    """Return the key of the store keeping an entry's fault reports."""
+    return f"{DOMAIN}.fault_reports.{entry_id}"
+
+
+def controller_time(local: dt.datetime | None) -> dt.datetime | None:
     """Return a trigger history time, in the controller's local time, as UTC.
 
     The controller keeps no offset, so its clock is taken to be in Home Assistant's time zone.
     """
-    if text is None:
-        return None
-
-    try:
-        local = dt.datetime.fromisoformat(text)
-    except ValueError:
+    if local is None:
         return None
 
     return dt_util.as_utc(local.replace(tzinfo=dt_util.get_default_time_zone()))
@@ -93,16 +95,6 @@ def iso(value: dt.datetime | None) -> str | None:
     return value.isoformat() if value is not None else None
 
 
-def parent_vid(obj: object) -> int | None:
-    """Return the VID of the object's parent."""
-    return getattr(getattr(obj, "parent", None), "vid", None)
-
-
-def position(obj: object) -> int | None:
-    """Return the object's position under its parent, eg. a load's channel."""
-    return getattr(getattr(obj, "parent", None), "position", None)
-
-
 class FaultTracker:
     """Track module faults, keep each module's last fault report, and tell trip side effects from genuine readings."""
 
@@ -119,7 +111,7 @@ class FaultTracker:
         self._vantage = vantage
         self._module_status = module_status
         self._store: Store[dict[str, dict[str, Any]]] = Store(
-            hass, STORAGE_VERSION, f"{DOMAIN}.fault_reports.{entry.entry_id}"
+            hass, STORAGE_VERSION, storage_key(entry.entry_id)
         )
 
         # Each module's last fault report, keyed by VID
@@ -130,6 +122,9 @@ class FaultTracker:
 
         # Modules off the bus, keyed by VID, with the time they left and the hold that starts a fault
         self._holds: dict[int, tuple[dt.datetime, CALLBACK_TYPE]] = {}
+
+        # Side effects seen while a module's hold runs, which join the fault the hold starts
+        self._pending: dict[int, list[dict[str, Any]]] = {}
 
         # Each module's load level changes within the timeline window, and when each load last turned on and off
         self._load_changes: dict[int, deque[tuple[dt.datetime, dict[str, Any]]]] = {}
@@ -173,17 +168,22 @@ class FaultTracker:
         signal: str,
         line_feed: int | None = None,
         started: dt.datetime | None = None,
+        side_effects: list[dict[str, Any]] | None = None,
     ) -> None:
-        """Start a fault on a module, unless one is already in progress."""
+        """Start a fault on a module, unless one is already in progress, which then takes the side effects given."""
         if (module := self._module(vid)) is None:
             return
 
         now = dt_util.utcnow()
         if self._in_progress(vid, now):
+            if side_effects:
+                self._reports[vid]["side_effects"].extend(side_effects)
+                self._updated(vid)
             return
 
         started = started or now
         report = self._build(module, signal, line_feed, started)
+        report["side_effects"] = side_effects or []
         self._reports[vid] = report
         self._updated(vid)
         LOGGER.debug("Module %d fault started by %s", vid, signal)
@@ -216,8 +216,10 @@ class FaultTracker:
                 changed is not None and now - changed <= CONNECTIVITY_WINDOW
             )
 
-        if side_effect and report is not None:
-            side_effects: list[dict[str, Any]] = report["side_effects"]
+        if (
+            side_effect
+            and (side_effects := self._side_effects_of(vid, now)) is not None
+        ):
             if len(side_effects) < MAX_SIDE_EFFECTS:
                 side_effects.append(
                     {
@@ -227,17 +229,39 @@ class FaultTracker:
                         "source_name": trigger["source_name"],
                     }
                 )
-                self._updated(vid)
+                if report is not None and side_effects is report["side_effects"]:
+                    self._updated(vid)
 
         return side_effect
 
+    def _side_effects_of(
+        self, vid: int, now: dt.datetime
+    ) -> list[dict[str, Any]] | None:
+        """Return the side effects of the fault a side effect seen now belongs to, if any."""
+        report = self._reports.get(vid)
+        if report is not None:
+            side_effects: list[dict[str, Any]] = report["side_effects"]
+            if self._in_progress(vid, now):
+                return side_effects
+
+            # A sensor back in range soon after its module recovered
+            if (recovered := report["recovered"]) is not None and (
+                now - dt.datetime.fromisoformat(recovered) <= CONNECTIVITY_WINDOW
+            ):
+                return side_effects
+
+        # Off the bus, before the hold starts a fault
+        if vid in self._holds:
+            return self._pending.setdefault(vid, [])
+
+        return None
+
     def _module(self, vid: int) -> SystemObject | None:
-        return next(
-            (module for module in self._vantage.modules if module.vid == vid), None
-        )
+        return self._vantage.modules.get(vid)
 
     def _time(self, report: dict[str, Any]) -> dt.datetime:
-        return dt_util.parse_datetime(report["time"]) or dt_util.utcnow()
+        # Written by this tracker, so always a valid time
+        return dt.datetime.fromisoformat(report["time"])
 
     def _in_progress(self, vid: int, now: dt.datetime) -> bool:
         """Return whether a module's last fault is still in progress, so a new signal adds to it."""
@@ -312,17 +336,20 @@ class FaultTracker:
             return
 
         left, _cancel = held
+        pending = self._pending.pop(vid, [])
         if (module := self._module(vid)) is None or self._module_status.data.is_online(
             module
         ) is not False:
             return
 
-        self.async_signal(vid, SIGNAL_OFFLINE, started=left)
+        self.async_signal(vid, SIGNAL_OFFLINE, started=left, side_effects=pending)
         if (report := self._reports.get(vid)) is not None and report["offline"] is None:
             report["offline"] = left.isoformat()
             self._updated(vid)
 
     def _cancel_hold(self, vid: int) -> None:
+        # The module is back, so what was seen during the hold belongs to no fault
+        self._pending.pop(vid, None)
         if (held := self._holds.pop(vid, None)) is not None:
             held[1]()
 
@@ -444,6 +471,7 @@ class FaultTracker:
             "lines": lines,
             "loads": loads,
             "timeline": [],
+            "timeline_errors": [],
             "side_effects": [],
         }
 
@@ -461,16 +489,22 @@ class FaultTracker:
     async def _complete(self, vid: int, report: dict[str, Any]) -> None:
         """Add the timeline to a report, then fire it."""
         started = self._time(report)
+        errors: list[ReadError] = []
         try:
-            report["timeline"] = await self._timeline(vid, started)
-        except Exception:  # noqa: BLE001
+            report["timeline"] = await self._timeline(vid, started, errors)
+        except Exception as err:  # noqa: BLE001
             # Still fire the report, since the fault matters more than its timeline
             LOGGER.exception("Failed to read the timeline of module %d's fault", vid)
+            errors.append({"host": self._vantage.host, "error": error_text(err)})
 
+        report["timeline_errors"] = errors
         self._updated(vid)
-        self._hass.bus.async_fire(EVENT_MODULE_FAULT, dict(report))
+        # A copy, since the stored report goes on changing as the fault does
+        self._hass.bus.async_fire(EVENT_MODULE_FAULT, copy.deepcopy(report))
 
-    async def _timeline(self, vid: int, started: dt.datetime) -> list[dict[str, Any]]:
+    async def _timeline(
+        self, vid: int, started: dt.datetime, errors: list[ReadError]
+    ) -> list[dict[str, Any]]:
         """Return the controller's triggers and the module's load changes before a fault, nearest the fault last."""
         first = started - TIMELINE_WINDOW
         last = started + TIMELINE_SLACK
@@ -478,13 +512,16 @@ class FaultTracker:
         def within(when: dt.datetime | None) -> bool:
             return when is not None and first <= when <= last
 
+        # Only the rows nearest the fault are kept, so only those are described
         def select(log: list[EventLogEntry]) -> list[EventLogEntry]:
-            return [item for item in log if within(controller_time(item.time_stamp))]
+            kept = [item for item in log if within(controller_time(item.timestamp))]
+            return kept[-TIMELINE_MAX_ROWS:]
 
         rows: list[tuple[dt.datetime, dict[str, Any]]] = []
-        errors: list[ReadError] = []
         for trigger in await read_trigger_history(self._entry, select, errors):
-            if (when := controller_time(trigger["time"])) is None:
+            if (
+                when := controller_time(dt_util.parse_datetime(trigger["time"]))
+            ) is None:
                 continue
             rows.append(
                 (
@@ -500,7 +537,11 @@ class FaultTracker:
                 )
             )
         if errors:
-            LOGGER.debug("Timeline of module %d's fault is missing %s", vid, errors)
+            LOGGER.warning(
+                "The timeline of module %d's fault is missing what could not be read: %s",
+                vid,
+                format_errors(errors),
+            )
 
         rows.extend(
             (when, change)

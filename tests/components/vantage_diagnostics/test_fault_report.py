@@ -1,12 +1,13 @@
 """Tests for the module fault report, its events, sensor and service, and the side-effect tagging."""
 
 from collections.abc import Generator, Sequence
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
+from aiovantage.errors import ClientError
 from aiovantage.events import ObjectUpdated
 from freezegun.api import FrozenDateTimeFactory
 import pytest
@@ -34,6 +35,7 @@ from custom_components.vantage_diagnostics.fault_report import (
     TIMELINE_MAX_ROWS,
     controller_time,
     reading,
+    storage_key,
 )
 from homeassistant.core import Event, HomeAssistant
 from homeassistant.helpers import entity_registry as er
@@ -282,6 +284,7 @@ async def test_trip_with_named_line_feed(
         "recovered": None,
         "outage": None,
         "temperature": None,
+        "timeline_errors": [],
         "side_effects": [],
     }
     assert report["lines"] == [
@@ -374,6 +377,10 @@ async def test_trip_with_named_line_feed(
     assert state.attributes["line_feed_name"] == "Line A"
     assert state.attributes["outage"] == outage
     assert state.attributes["side_effects"] == 2
+
+    # The event kept what it fired with, though the stored report went on changing
+    assert faults[0].data["offline"] is None
+    assert faults[0].data["side_effects"] == []
 
 
 @pytest.mark.parametrize("module_model", ["UDM08-EM"])
@@ -540,13 +547,29 @@ async def test_timeline_keeps_rows_nearest_the_fault(
 
 
 @pytest.mark.usefixtures("init_integration")
-async def test_timeline_failure_still_fires_the_report(
+async def test_unreadable_history_is_reported(
     hass: HomeAssistant,
     fake_stream: type[FakeEventStream],
     history_read: AsyncMock,
 ) -> None:
-    """Test that a fault still reports when its timeline can't be read."""
-    history_read.side_effect = RuntimeError("boom")
+    """Test that a fault still reports when its trigger history can't be read, and says so."""
+    history_read.side_effect = ClientError("Timeout")
+    faults = async_capture_events(hass, EVENT_MODULE_FAULT)
+
+    await emit(hass, stream_of(fake_stream), MISSING_FEED_LOG)
+
+    assert len(faults) == 1
+    assert faults[0].data["timeline"] == []
+    assert faults[0].data["timeline_errors"] == [
+        {"host": HOST, "master": 1, "error": "Timeout"}
+    ]
+
+
+@pytest.mark.usefixtures("init_integration")
+async def test_timeline_failure_still_fires_the_report(
+    hass: HomeAssistant, fake_stream: type[FakeEventStream]
+) -> None:
+    """Test that a fault still reports when building its timeline fails unexpectedly."""
     faults = async_capture_events(hass, EVENT_MODULE_FAULT)
 
     with patch(
@@ -557,6 +580,73 @@ async def test_timeline_failure_still_fires_the_report(
 
     assert len(faults) == 1
     assert faults[0].data["timeline"] == []
+    assert faults[0].data["timeline_errors"] == [{"host": HOST, "error": "boom"}]
+
+
+@pytest.mark.usefixtures("init_integration")
+async def test_side_effects_join_their_own_fault(
+    hass: HomeAssistant,
+    fake_stream: type[FakeEventStream],
+    modules_read: AsyncMock,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Test that a side effect joins the fault it belongs to, never an earlier one long recovered."""
+    stream = stream_of(fake_stream)
+    faults = async_capture_events(hass, EVENT_MODULE_FAULT)
+    triggers = async_capture_events(hass, EVENT_TRIGGER)
+
+    # An earlier trip, long recovered
+    await emit(hass, stream, MISSING_FEED_LOG)
+    await bus_drop(hass, stream, modules_read)
+    await bus_return(hass, stream, modules_read)
+    freezer.tick(timedelta(minutes=10))
+    (earlier,) = await fault_reports(hass)
+    assert earlier["side_effects"] == []
+
+    # A drop with no warning, whose sensors read out of range before the hold starts its fault
+    await bus_drop(hass, stream, modules_read)
+    freezer.tick(timedelta(seconds=6))
+    await emit(hass, stream, trigger_line(POWER_A_VID, TriggerType.OUT_OF_RANGE))
+    assert trigger_data(triggers, POWER_A_VID)[-1]["side_effect"] is True
+    assert await fault_reports(hass) == [earlier]
+
+    freezer.tick(timedelta(seconds=OFFLINE_HOLD))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert len(faults) == 2
+    assert [effect["source_id"] for effect in faults[1].data["side_effects"]] == [
+        POWER_A_VID
+    ]
+
+    # Long after that one recovered, a program write's brief drop joins neither
+    await bus_return(hass, stream, modules_read)
+    freezer.tick(timedelta(minutes=10))
+    (later,) = await fault_reports(hass)
+    await bus_drop(hass, stream, modules_read)
+    await emit(hass, stream, trigger_line(POWER_A_VID, TriggerType.OUT_OF_RANGE))
+    freezer.tick(timedelta(seconds=5))
+    await bus_return(hass, stream, modules_read)
+    await emit(hass, stream, trigger_line(POWER_A_VID, TriggerType.IN_RANGE))
+    assert trigger_data(triggers, POWER_A_VID)[-1]["side_effect"] is True
+    assert await fault_reports(hass) == [later]
+
+
+async def test_removing_the_entry_removes_its_reports(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    fake_stream: type[FakeEventStream],
+    hass_storage: dict[str, Any],
+) -> None:
+    """Test that deleting the entry deletes the reports it kept, which no new entry would read."""
+    await emit(hass, stream_of(fake_stream), MISSING_FEED_LOG)
+    assert await hass.config_entries.async_unload(init_integration.entry_id)
+    key = storage_key(init_integration.entry_id)
+    assert key in hass_storage
+
+    await hass.config_entries.async_remove(init_integration.entry_id)
+    await hass.async_block_till_done()
+
+    assert key not in hass_storage
 
 
 @pytest.mark.parametrize("online_after_restart", [False, True])
@@ -627,19 +717,15 @@ async def test_unload_cancels_the_hold(
 
 
 @pytest.mark.parametrize(
-    ("text", "expected"),
-    [
-        (None, None),
-        ("not a time", None),
-        ("2026-01-02T03:04:05", "2026-01-02T11:04:05+00:00"),
-    ],
+    ("local", "expected"),
+    [(None, None), (datetime(2026, 1, 2, 3, 4, 5), "2026-01-02T11:04:05+00:00")],
 )
 async def test_controller_time(
-    hass: HomeAssistant, text: str | None, expected: str | None
+    hass: HomeAssistant, local: datetime | None, expected: str | None
 ) -> None:
     """Test that a controller time is read in Home Assistant's time zone."""
     await hass.config.async_set_time_zone("US/Pacific")
-    result = controller_time(text)
+    result = controller_time(local)
     assert (result.isoformat() if result else None) == expected
 
 

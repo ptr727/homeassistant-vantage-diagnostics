@@ -87,7 +87,7 @@ It owns a second event stream for the trigger and system log lines, which the st
   It tells the fault tracker when a module joins or leaves its bus.
 - `fault_report.py`: starts a module fault from the line feed warning, the module alert or a held bus drop.
   It builds and stores the report, fires the fault and recovery events, and tags the range triggers a fault causes.
-  The reports are kept in the `vantage_diagnostics.fault_reports.<entry ID>` store.
+  The reports are kept in the `vantage_diagnostics.fault_reports.<entry ID>` store, which `__init__.py` deletes when the entry is deleted.
 - `entity.py`: the base entities, which attach to the stock module and controller devices.
 - `binary_sensor.py`: the module connectivity sensors and the event stream sensor.
 - `sensor.py`: the module hardware, firmware, bus error and last fault sensors and the controller host and IP address sensors.

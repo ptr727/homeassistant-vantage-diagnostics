@@ -71,6 +71,10 @@ class FakeController:
         """Iterate the objects."""
         return iter(self.objects)
 
+    def get(self, vid: int) -> Any:
+        """Return the object with the VID, or None."""
+        return next((obj for obj in self.objects if obj.vid == vid), None)
+
     def subscribe(self, event_type: type, callback: Callable[[Any], None]) -> MagicMock:
         """Record a subscription."""
         self.subscribers.append((event_type, callback))

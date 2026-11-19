@@ -133,7 +133,12 @@ The other signals of the same fault add nothing, since a trip raises all three w
 A fault lasts until the module is back on its bus.
 One whose module never drops off the bus ends 2 minutes after it started, so a later warning reports again.
 The `module_alert` trigger fires only when the Design Center program assigns a task to the module's Alert event.
-The bus drop needs the module's connectivity sensor enabled, which it is by default.
+The bus drop needs at least one module entity enabled, since the bus is read only then.
+Every module entity starts enabled.
+
+The event fires once the timeline is read, carrying the report as it stands then.
+A trip's bus drop and side effects often arrive after that, so the event may lack them while the stored report has them.
+The `get_fault_report` service returns the report as it stands now.
 
 | Field | Meaning |
 | --- | --- |
@@ -141,13 +146,14 @@ The bus drop needs the module's connectivity sensor enabled, which it is by defa
 | `signal` | What started the fault: `system_log`, `module_alert` or `offline` |
 | `time` | When the fault started, in UTC. For a bus drop alone it is when the module dropped off |
 | `line_feed`, `line_feed_name` | The number and name of the missing line feed, null when the controller named none |
-| `offline` | When the module dropped off its bus, null while it is on it. The event fires before a trip drops the module, so this is null in the event and set in the stored report |
-| `recovered`, `outage` | When the module came back on its bus, and the seconds since the fault started. Null in the event, and set in the stored report once it recovers |
+| `offline` | When the module dropped off its bus, null while it is on it |
+| `recovered`, `outage` | When the module came back on its bus, and the seconds since the fault started. Null until it recovers |
 | `temperature` | The module's temperature at the fault, in degrees Celsius, null where the sensor is not reporting |
 | `lines` | Each line feed's number, letter, name, and last `power` and `current` reading, null where the sensor is not reporting |
-| `loads` | Each load on the module, with its VID, name, `channel`, `line_feed` and last `level`. `last_on` and `last_off` are the UTC times it last turned on and off since Home Assistant started. `on_missing_line` marks the loads on the missing line feed |
+| `loads` | Each load on the module, with its VID, name, `channel`, `line_feed` and last `level`. `last_on` and `last_off` are the UTC times it last turned on and off since the entry last loaded. `on_missing_line` marks the loads on the missing line feed |
 | `timeline` | The controller's triggers and the module's load level changes over the 30 minutes before the fault, oldest first. Each row has its UTC `time`, its offset `t` in seconds from the fault, and its `kind`, `trigger` or `load`. At most the 60 rows nearest the fault are kept |
-| `side_effects` | The range triggers attributed to the fault. Empty in the event, since they arrive after it, and filled in the stored report |
+| `timeline_errors` | Each master whose trigger history could not be read, with its `host`, `master` and `error`. Empty when the whole history was read, so an empty `timeline` then means a quiet half hour |
+| `side_effects` | The range triggers attributed to the fault |
 
 A sensor reading is aiovantage's last value, so a line that lost power reads null rather than its last power.
 A load's level is what the controller commanded, not measured power, which the module measures per line feed only.
@@ -155,7 +161,8 @@ Which channels a line feed powers depends on the module model.
 The integration knows the SDM-12, where each line feed powers three consecutive channels.
 A module of another model lists its loads by channel, with a null `line_feed`.
 The timeline reads the controller's whole trigger history once per fault, and takes the controller's clock to be in Home Assistant's time zone.
-A load change shows only if it happened while Home Assistant was running.
+A load change shows only if it happened while the entry was loaded.
+The entry reloads whenever the stock entry does, which also clears what it saw of the loads.
 
 When a module loses power, each of its range-monitored sensors raises an out-of-range trigger, 6 to 36 seconds after the fault starts.
 So each `out_of_range` and `in_range` `vantage_trigger` carries `side_effect`.
