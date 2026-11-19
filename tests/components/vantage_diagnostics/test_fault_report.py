@@ -522,6 +522,17 @@ async def test_genuine_out_of_range(
         False,
         None,
     ]
+    # A range trigger names its sensor's module, null for a sensor on none, and no other trigger has the field
+    assert [data["module_id"] for data in trigger_data(triggers, POWER_B_VID)] == [
+        MODULE_VID,
+        MODULE_VID,
+    ]
+    assert [
+        data.get("module_id", 0) for data in trigger_data(triggers, BUTTON_VID)
+    ] == [
+        None,
+        0,
+    ]
     assert faults == []
 
 

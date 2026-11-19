@@ -34,6 +34,8 @@ It installs through the Home Assistant Marketplace as a custom repository.
 - The `get_trigger_history`, `get_system_log` and `get_module_status` response-only services.
 - A module fault report, fired as a `vantage_module_fault` event when a module loses a line feed or drops off its bus. A `vantage_module_recovered` event, a **Last fault** sensor per module and the `get_fault_report` service go with it.
 - A `side_effect` flag on each out-of-range and back-in-range trigger, telling a trip's side effects from genuine readings.
+- A `module_id` on each out-of-range and back-in-range trigger, naming the module its sensor sits on.
+- The **Vantage module fault** blueprint, which notifies on module faults, recoveries and genuine range readings.
 
 See [Release History][history] for complete release notes and older versions.
 
@@ -49,6 +51,7 @@ See [Release History][history] for complete release notes and older versions.
   - [Events](#events)
   - [Entities](#entities)
   - [Services](#services)
+  - [Blueprints](#blueprints)
   - [Installation](#installation)
   - [Configuration](#configuration)
   - [Questions or Issues](#questions-or-issues)
@@ -71,6 +74,7 @@ It adds the following, each described in its own section below:
 - **Events**: `vantage_trigger`, `vantage_system_log`, `vantage_module_fault` and `vantage_module_recovered`, fired on the Home Assistant event bus.
 - **Entities**: diagnostic sensors on the stock integration's module and controller devices.
 - **Services**: four response-only services that read the controller's trigger history, system log and module status, and return each module's last fault report.
+- **Blueprints**: automation blueprints that show common uses of the events and entities, imported by URL.
 
 ## Events
 
@@ -95,6 +99,7 @@ A button with no task assigned fires nothing.
 | `task_id`, `task_name` | The VID and name of the task it started |
 | `param1`, `param2` | The trigger's two parameters, whose meaning depends on its kind |
 | `entity_id` | The stock integration's entity for the source object, present only when it has one, such as a dry contact. A button has none |
+| `module_id` | On an `out_of_range` or `in_range` trigger only, the VID of the module the source sensor sits on, null for a sensor on no module |
 | `side_effect` | On an `out_of_range` or `in_range` trigger only, whether the module losing or regaining power explains it rather than a genuine reading. See [`vantage_module_fault`](#vantage_module_fault) |
 
 For example, a press on a keypad button might fire `trigger_type: button_down`, `source_name: Button 2`, `source_path: [Button 2, Hall Keypad]` and `task_name: Hall Lights`.
@@ -245,7 +250,7 @@ The module status service lists every module even when no enclosure could be rea
 
 | Service | Fields | Returns |
 | --- | --- | --- |
-| `vantage_diagnostics.get_trigger_history` | `limit`, entries per master, default 100 | `entries`: the trigger history, newest last, with the `vantage_trigger` fields other than `entity_id` and `side_effect`, plus `time` and `master`. Times are the controller's local time |
+| `vantage_diagnostics.get_trigger_history` | `limit`, entries per master, default 100 | `entries`: the trigger history, newest last, with the `vantage_trigger` fields other than `entity_id`, `module_id` and `side_effect`, plus `time` and `master`. Times are the controller's local time |
 | `vantage_diagnostics.get_system_log` | `limit`, entries per master, default 100 | `entries`: the system log, newest last, with `time`, `master`, `type`, `source` and `message` |
 | `vantage_diagnostics.get_module_status` | None | `modules`: each module with `module_id`, `module_name`, `online`, `address`, `model`, `revision`, `version`, `status` and `errors` |
 | `vantage_diagnostics.get_fault_report` | `module_id`, optional | `reports`: the last fault report of the module with that VID, or of every module that has faulted. Each has the fields of [`vantage_module_fault`](#vantage_module_fault) as they stand now |
@@ -253,6 +258,16 @@ The module status service lists every module even when no enclosure could be rea
 The module status service reads the bus whether or not any module entity is enabled.
 Its `online` is null for a module whose enclosure could not be read.
 The fault report service reads nothing from the controller, and returns an empty `reports` for a module that has not faulted.
+
+## Blueprints
+
+Each blueprint shows a common use of this integration's events and entities, and has its own doc.
+This integration does not install them, so import each one by URL from its doc.
+Each names its source, so **Re-import blueprint** in its menu fetches the latest version.
+
+| Blueprint | What it does |
+| --- | --- |
+| [Vantage module fault][blueprint-module-fault] | Notifies when a module faults, such as when its breaker trips, and when it recovers. It also notifies on genuine out-of-range and back-in-range readings, and drops the readings a trip causes |
 
 ## Installation
 
@@ -349,6 +364,7 @@ Licensed under the [MIT License][license]\
 <!-- Repo -->
 
 [audit]: ./AUDIT.md
+[blueprint-module-fault]: ./blueprints/automation/vantage_diagnostics/vantage_module_fault.md
 [codestyle]: ./CODESTYLE.md
 [devcontainer]: ./DEVCONTAINER.md
 [editorconfig]: ./.editorconfig
