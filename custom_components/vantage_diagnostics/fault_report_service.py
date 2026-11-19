@@ -1,5 +1,7 @@
 """The service that returns each module's last fault report."""
 
+import copy
+
 import probatio as vol
 
 from homeassistant.core import HomeAssistant, ServiceCall
@@ -22,9 +24,12 @@ async def _fault_reports(
     tracker = entry.runtime_data.fault_tracker
     if (vid := call.data.get(ATTR_MODULE_ID)) is not None:
         report = tracker.report(vid)
-        return [report] if report is not None else []
+        reports = [report] if report is not None else []
+    else:
+        reports = tracker.reports()
 
-    return list[JsonValueType](tracker.reports())
+    # Copies, since a stored report goes on changing as its fault does
+    return list[JsonValueType](copy.deepcopy(reports))
 
 
 def async_register_fault_report_service(hass: HomeAssistant) -> None:

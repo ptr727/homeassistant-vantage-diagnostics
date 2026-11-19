@@ -38,6 +38,8 @@ from custom_components.vantage_diagnostics.fault_report import (
     reading,
     storage_key,
 )
+from homeassistant.config_entries import ConfigEntryState
+from homeassistant.const import EVENT_HOMEASSISTANT_FINAL_WRITE
 from homeassistant.core import Event, HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
@@ -757,7 +759,7 @@ async def test_restart_mid_fault(
     freezer: FrozenDateTimeFactory,
     online_after_restart: bool,
 ) -> None:
-    """Test that a report survives a restart mid-fault, and the recovery still reports."""
+    """Test that a report survives a reload mid-fault, and the recovery still reports."""
     faults = async_capture_events(hass, EVENT_MODULE_FAULT)
     recoveries = async_capture_events(hass, EVENT_MODULE_RECOVERED)
     tripped = dt_util.utcnow()
@@ -835,3 +837,52 @@ async def test_controller_time(
 def test_reading(value: Decimal | None, expected: float | None) -> None:
     """Test that the not-reported marker reads as no reading."""
     assert reading(value) == expected
+
+
+@pytest.mark.usefixtures("init_integration")
+async def test_dimming_is_no_switch(
+    hass: HomeAssistant,
+    client: FakeClient,
+    fake_stream: type[FakeEventStream],
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Test that a load's last on and off times move only when it switches, not when it dims."""
+    load = client.loads.objects[0]
+    faults = async_capture_events(hass, EVENT_MODULE_FAULT)
+
+    load.level = Decimal(100)
+    client.loads.fire(ObjectUpdated(load, ["level"]))
+    switched_on = dt_util.utcnow()
+    freezer.tick(timedelta(minutes=1))
+    load.level = Decimal(40)
+    client.loads.fire(ObjectUpdated(load, ["level"]))
+    freezer.tick(timedelta(minutes=1))
+    # A change to another attribute is no level change
+    client.loads.fire(ObjectUpdated(load, ["name"]))
+
+    await emit(hass, stream_of(fake_stream), MISSING_FEED_LOG)
+
+    (first,) = (row for row in faults[0].data["loads"] if row["load_id"] == load.vid)
+    assert first["level"] == 40.0
+    assert first["last_on"] == switched_on.isoformat()
+    assert first["last_off"] is None
+
+
+async def test_reports_saved_without_an_unload(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    fake_stream: type[FakeEventStream],
+    hass_storage: dict[str, Any],
+) -> None:
+    """Test that a report reaches the store as Home Assistant stops, which unloads no entry."""
+    await emit(hass, stream_of(fake_stream), MISSING_FEED_LOG)
+    key = storage_key(init_integration.entry_id)
+    assert key not in hass_storage
+
+    hass.bus.async_fire(EVENT_HOMEASSISTANT_FINAL_WRITE)
+    await hass.async_block_till_done()
+
+    assert init_integration.state is ConfigEntryState.LOADED
+    assert hass_storage[key]["data"] == {
+        str(MODULE_VID): (await fault_reports(hass))[0]
+    }

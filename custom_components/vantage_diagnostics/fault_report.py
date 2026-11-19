@@ -130,6 +130,9 @@ class FaultTracker:
         self._last_on: dict[int, dt.datetime] = {}
         self._last_off: dict[int, dt.datetime] = {}
 
+        # Whether each load was last seen on, so a dim or a brighten is not taken for a switch
+        self._on: dict[int, bool] = {}
+
     def signal_updated(self, vid: int) -> str:
         """Dispatcher signal sent when a module's fault report changes."""
         return f"{DOMAIN}_fault_report_{self._entry.entry_id}_{vid}"
@@ -151,6 +154,7 @@ class FaultTracker:
     def async_start(self) -> None:
         """Follow the modules' connectivity and their loads' levels."""
         entry = self._entry
+        self._on = {load.vid: bool(load.level) for load in self._vantage.loads}
         entry.async_on_unload(
             self._module_status.async_add_transition_listener(self._on_transition)
         )
@@ -369,10 +373,10 @@ class FaultTracker:
 
         load = event.obj
         now = dt_util.utcnow()
-        if load.level:
-            self._last_on[load.vid] = now
-        else:
-            self._last_off[load.vid] = now
+        on = bool(load.level)
+        if on != self._on.get(load.vid):
+            (self._last_on if on else self._last_off)[load.vid] = now
+        self._on[load.vid] = on
 
         if (vid := parent_vid(load)) is None or self._module(vid) is None:
             return
