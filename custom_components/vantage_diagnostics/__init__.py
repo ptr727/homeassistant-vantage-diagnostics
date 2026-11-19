@@ -34,7 +34,7 @@ from .config_entry import (
 )
 from .const import CONF_VANTAGE_ENTRY_ID, DOMAIN, LOGGER, VANTAGE_DOMAIN
 from .diagnostic_services import async_register_diagnostic_services
-from .helpers import error_text
+from .helpers import error_text, peer_address
 from .module_status import ModuleStatusCoordinator
 from .module_status_service import async_register_module_status_service
 from .names import ObjectNames
@@ -146,6 +146,8 @@ async def async_setup_entry(
             translation_placeholders={"error": error_text(err)},
         ) from err
 
+    entry.runtime_data.ip_address = peer_address(connection)
+
     # Both are only streamed through the enhanced log
     if connection.supports_enhanced_log:
         async_setup_triggers(hass, entry)
@@ -158,7 +160,11 @@ async def async_setup_entry(
 
     # Mark every entity unavailable while the event stream is down
     def on_connection_changed(event: object) -> None:
-        entry.runtime_data.connected = not isinstance(event, Disconnected)
+        connected = not isinstance(event, Disconnected)
+        entry.runtime_data.connected = connected
+        # The stream reopens the same connection, perhaps to a new address after a DHCP or DNS change
+        if connected:
+            entry.runtime_data.ip_address = peer_address(connection)
         async_dispatcher_send(hass, entry.runtime_data.signal_connection_changed)
 
     for event_type in (Connected, Reconnected, Disconnected):

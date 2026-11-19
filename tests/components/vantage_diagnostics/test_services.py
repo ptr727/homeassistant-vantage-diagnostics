@@ -387,7 +387,9 @@ async def test_two_controllers_are_merged(
             (),
             {
                 "start": AsyncMock(
-                    return_value=type("C", (), {"supports_enhanced_log": False})()
+                    return_value=type(
+                        "C", (), {"supports_enhanced_log": False, "_writer": None}
+                    )()
                 ),
                 "stop": lambda self: None,
                 "subscribe": lambda self, *a: lambda: None,

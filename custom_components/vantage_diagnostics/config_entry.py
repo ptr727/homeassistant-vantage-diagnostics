@@ -68,6 +68,8 @@ class VantageDiagnosticsData:
     rpc: SharedRpc
     module_status: ModuleStatusCoordinator
     connected: bool = True
+    ip_address: str | None = None
+    """The address the event stream's socket connects to, kept while the stream is down."""
 
     @property
     def signal_connection_changed(self) -> str:

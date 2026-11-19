@@ -15,6 +15,9 @@
       },
       "host": {
         "default": "mdi:ip-network"
+      },
+      "ip_address": {
+        "default": "mdi:ip"
       }
     }
   },

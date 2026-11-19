@@ -30,7 +30,7 @@ It installs through the Home Assistant Marketplace as a custom repository.
 - `vantage_trigger` events for each task a controller object starts, and `vantage_system_log` events for notable system log entries.
 - Logbook entries for the trigger and system log events, with a trigger also shown on its source's stock entity where it has one.
 - Module connectivity, hardware model, hardware revision, firmware version and bus error sensors, attached to the stock module devices.
-- Event stream and host sensors on the controller device.
+- Event stream, host and IP address sensors on the controller device.
 - The `get_trigger_history`, `get_system_log` and `get_module_status` response-only services.
 
 See [Release History][history] for complete release notes and older versions.
@@ -119,23 +119,21 @@ A module online or offline entry also updates that module's connectivity sensor 
 ## Entities
 
 Every entity has the diagnostic entity category and joins a device the stock integration owns, so it shows on that device's page.
-The fault signals start enabled: each module's connectivity and bus error sensors, and the event stream sensor.
-The inventory sensors start disabled, to keep the device pages tidy: hardware model, hardware revision, firmware version and host.
-The hardware model, hardware revision and firmware version sensors read the same reply as the module fault sensors.
-So while a module's connectivity or bus error sensor is enabled, they add no polling.
-The host sensor never reads the bus, since the host comes from the stock entry.
-Enabling any entity reloads the entry about 30 seconds later, which reads the bus once more while a module entity is enabled.
-Enable an inventory sensor from its device page.
+Every entity starts enabled, since its value rarely changes and the module entities share one bus read.
+The hardware model, hardware revision and firmware version sensors read the same reply as the module fault sensors, so they add no polling.
+The host and IP address sensors never read the bus.
+Re-enabling a disabled entity reloads the entry about 30 seconds later, which reads the bus once more while a module entity is enabled.
 
-| Entity | On | Enabled by default | What it reports |
-| --- | --- | --- | --- |
-| **Connectivity** | Each module | Yes | Whether the module responds on its enclosure bus. It turns off when the module loses power, such as when its breaker trips. Its attributes hold the module's bus address and error count |
-| **Hardware model** | Each module | No | The hardware model the module reports. The stock device's model is the Design Center object type instead |
-| **Hardware revision** | Each module | No | The hardware revision the module reports, which changes when a module is swapped for a newer revision of the same hardware |
-| **Firmware version** | Each module | No | The firmware version the module reports |
-| **Bus errors** | Each module | Yes | How many times the module lost and regained the bus. The controller only raises this count, so the sensor has the `total_increasing` state class |
-| **Event stream** | The controller | Yes | Whether this integration's own event stream is connected |
-| **Host** | The controller | No | The host both integrations connect to, which the stock integration no longer shows |
+| Entity | On | What it reports |
+| --- | --- | --- |
+| **Connectivity** | Each module | Whether the module responds on its enclosure bus. It turns off when the module loses power, such as when its breaker trips. Its attributes hold the module's bus address and error count |
+| **Hardware model** | Each module | The hardware model the module reports. The stock device's model is the Design Center object type instead |
+| **Hardware revision** | Each module | The hardware revision the module reports, which changes when a module is swapped for a newer revision of the same hardware |
+| **Firmware version** | Each module | The firmware version the module reports |
+| **Bus errors** | Each module | How many times the module lost and regained the bus. The controller only raises this count, so the sensor has the `total_increasing` state class |
+| **Event stream** | The controller | Whether this integration's own event stream is connected |
+| **Host** | The controller | The host both integrations connect to, as configured in the stock entry, a host name or an address |
+| **IP address** | The controller | The address this integration's event stream connects to, read from its socket rather than looked up. It replaces the IP address sensor the stock integration removed, and takes the same `sensor.<controller>_ip_address` entity ID. It keeps the last address while the stream is down |
 
 The module entities read the enclosure buses every 60 seconds, and only while at least one of them is enabled.
 A module online or offline log refreshes them at once.
