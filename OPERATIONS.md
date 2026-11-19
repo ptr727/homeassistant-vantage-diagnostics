@@ -84,7 +84,7 @@ It owns a second event stream for the trigger and system log lines, which the st
 - `module_status.py`: reads the enclosure buses for the module entities and the status service.
 - `entity.py`: the base entities, which attach to the stock module and controller devices.
 - `binary_sensor.py`: the module connectivity sensors and the event stream sensor.
-- `sensor.py`: the module hardware, firmware and bus error sensors and the controller host sensor.
+- `sensor.py`: the module hardware, firmware and bus error sensors and the controller host and IP address sensors.
 - `diagnostic_services.py`, `module_status_service.py`: the response-only services.
 - `logbook.py`: describes the trigger and system log events.
   `triggers.py` adds the `entity_id` of the stock entity whose unique ID is the source VID, so that entity's logbook shows the trigger too.
