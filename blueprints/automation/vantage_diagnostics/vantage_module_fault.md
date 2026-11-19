@@ -149,13 +149,13 @@ Module 2 lost Line A at 06:47. Loads on it: Kitchen Cans (100%), Pantry (off).
 Module 2 is back on its bus after 3 min 12 s.
 ```
 
-The fault notification lists the loads on the missing line feed only on an SDM-12.
-That is the one model whose channels the integration maps to line feeds.
 That holds while a module sensor that reads the bus is enabled, such as **Connectivity**.
 [What Notifies](#what-notifies) covers the cases that send more.
 One is a breaker reset more than 2 minutes after a fault that left the module on its bus.
 A breaker that feeds only some of the module's line feeds can leave the module on its bus.
 The trip then reads as a fault on one line feed.
+The fault notification lists the loads on the missing line feed only on an SDM-12.
+That is the one model whose channels the integration maps to line feeds.
 
 While the module has no power, its stock line power and current sensors read `-0.999`.
 That is the marker for a sensor that is not reporting, not a reading.
