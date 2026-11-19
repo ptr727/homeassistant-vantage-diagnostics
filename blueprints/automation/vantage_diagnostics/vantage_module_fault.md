@@ -155,7 +155,7 @@ One is a breaker reset more than 2 minutes after a fault that left the module on
 
 The fault notification lists only the loads on the line feed the fault named, Line A here.
 Every load on the module lost power, since the breaker feeds every line feed.
-The loads are listed only on an SDM-12, the one model whose channels the integration maps to line feeds.
+The notification lists loads only on an SDM-12, the one model whose channels the integration maps to line feeds.
 A breaker that feeds only some of the module's line feeds can leave the module on its bus.
 The trip then reads as a fault on one line feed.
 
