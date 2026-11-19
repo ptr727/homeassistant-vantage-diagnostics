@@ -27,6 +27,7 @@ from .conftest import (
     MODULE_VID,
     PEER,
     FakeClient,
+    FakeConnection,
     FakeEventStream,
     FakeWriter,
     make_module,
@@ -113,7 +114,7 @@ async def test_enabled_by_default(hass: HomeAssistant) -> None:
         assert hass.states.get(entity_id), key
 
 
-@pytest.mark.usefixtures("entity_registry_enabled_by_default", "full_info_read")
+@pytest.mark.usefixtures("full_info_read")
 async def test_module_sensors_report_the_bus_status(
     hass: HomeAssistant,
     init_integration: MockConfigEntry,
@@ -150,7 +151,6 @@ async def test_module_sensors_report_the_bus_status(
     assert state_of(hass, "bus_errors") == "4"
 
 
-@pytest.mark.usefixtures("entity_registry_enabled_by_default")
 @pytest.mark.parametrize("key", list(FIELDS))
 async def test_module_status_lacking_a_field(
     hass: HomeAssistant,
@@ -170,7 +170,6 @@ async def test_module_status_lacking_a_field(
         assert state_of(hass, other) == (STATE_UNKNOWN if other == key else value)
 
 
-@pytest.mark.usefixtures("entity_registry_enabled_by_default")
 async def test_module_status_with_only_a_vid(
     hass: HomeAssistant,
     config_entry: MockConfigEntry,
@@ -187,7 +186,6 @@ async def test_module_status_with_only_a_vid(
         assert state_of(hass, key) == STATE_UNKNOWN, key
 
 
-@pytest.mark.usefixtures("entity_registry_enabled_by_default")
 async def test_module_never_read_is_unknown(
     hass: HomeAssistant,
     config_entry: MockConfigEntry,
@@ -204,7 +202,7 @@ async def test_module_never_read_is_unknown(
         assert state_of(hass, key) == STATE_UNKNOWN, key
 
 
-@pytest.mark.usefixtures("entity_registry_enabled_by_default", "full_info_read")
+@pytest.mark.usefixtures("full_info_read")
 async def test_module_sensors_unavailable_while_stream_down(
     hass: HomeAssistant,
     init_integration: MockConfigEntry,
@@ -221,7 +219,6 @@ async def test_module_sensors_unavailable_while_stream_down(
     assert state_of(hass, "hardware_model") == "Example-Model"
 
 
-@pytest.mark.usefixtures("entity_registry_enabled_by_default")
 async def test_module_sensors_unavailable_when_no_enclosure_read(
     hass: HomeAssistant,
     init_integration: MockConfigEntry,
@@ -254,7 +251,7 @@ async def test_module_added_later_gets_sensors(
         assert sensor_id(hass, key, 103), key
 
 
-@pytest.mark.usefixtures("entity_registry_enabled_by_default", "init_integration")
+@pytest.mark.usefixtures("init_integration")
 async def test_host_sensor(hass: HomeAssistant) -> None:
     """Test that the controller's host shows on the controller this integration connects to."""
     assert state_of(hass, "host", MASTER_VID) == HOST
@@ -273,7 +270,7 @@ async def test_host_sensor(hass: HomeAssistant) -> None:
 
 @pytest.mark.usefixtures("init_integration")
 async def test_ip_address_sensor(hass: HomeAssistant) -> None:
-    """Test that the address the event stream connects to shows under the removed stock sensor's entity ID."""
+    """Test that the address the event stream connects to shows on the controller."""
     entity_id = sensor_id(hass, "ip_address", MASTER_VID)
     assert entity_id == "sensor.controller_ip_address"
     assert state_of(hass, "ip_address", MASTER_VID) == PEER
@@ -302,17 +299,17 @@ async def test_ip_address_sensor_follows_the_stream(
         (FakeWriter(), PEER),
         (FakeWriter(("2001:db8::20", 3010, 0, 0)), "2001:db8::20"),
         (FakeWriter(None), None),
-        (FakeWriter(closing=True), None),
         (None, None),
     ],
-    ids=["ipv4", "ipv6", "no_peer", "closing", "closed"],
+    ids=["ipv4", "ipv6", "no_peer", "closed"],
 )
 def test_peer_address(writer: FakeWriter | None, address: str | None) -> None:
     """Test reading the address from the socket, with no lookup of the configured host."""
-    assert peer_address(SimpleNamespace(_writer=writer)) == address  # type: ignore[arg-type]
+    connection = FakeConnection(supports_enhanced_log=True)
+    connection.reopen(writer)
+    assert peer_address(connection) == address  # type: ignore[arg-type]
 
 
-@pytest.mark.usefixtures("entity_registry_enabled_by_default")
 async def test_host_sensor_unavailable_while_stock_entry_not_loaded(
     hass: HomeAssistant,
     init_integration: MockConfigEntry,
@@ -327,7 +324,6 @@ async def test_host_sensor_unavailable_while_stock_entry_not_loaded(
     assert state_of(hass, "host", MASTER_VID) == STATE_UNAVAILABLE
 
 
-@pytest.mark.usefixtures("entity_registry_enabled_by_default")
 @pytest.mark.parametrize("number", [2, None])
 async def test_no_controller_sensor_without_the_connected_master(
     hass: HomeAssistant,
@@ -346,7 +342,6 @@ async def test_no_controller_sensor_without_the_connected_master(
     assert sensor_id(hass, "hardware_model")
 
 
-@pytest.mark.usefixtures("entity_registry_enabled_by_default")
 async def test_no_controller_sensor_without_its_stock_device(
     hass: HomeAssistant,
     config_entry: MockConfigEntry,

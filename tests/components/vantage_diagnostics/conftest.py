@@ -136,14 +136,9 @@ class FakeClient:
 class FakeWriter:
     """A stand-in for the stream writer of the event stream's socket."""
 
-    def __init__(self, peername: Any = (PEER, 3010), closing: bool = False) -> None:
+    def __init__(self, peername: Any = (PEER, 3010)) -> None:
         """Hold the peer the socket connects to."""
         self.peername = peername
-        self.closing = closing
-
-    def is_closing(self) -> bool:
-        """Return whether the socket is closing."""
-        return self.closing
 
     def get_extra_info(self, name: str) -> Any:
         """Return the socket's peer name, the only extra info the integration reads."""

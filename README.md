@@ -133,7 +133,7 @@ Re-enabling a disabled entity reloads the entry about 30 seconds later, which re
 | **Bus errors** | Each module | How many times the module lost and regained the bus. The controller only raises this count, so the sensor has the `total_increasing` state class |
 | **Event stream** | The controller | Whether this integration's own event stream is connected |
 | **Host** | The controller | The host both integrations connect to, as configured in the stock entry, a host name or an address |
-| **IP address** | The controller | The address this integration's event stream connects to, read from its socket rather than looked up. It replaces the IP address sensor the stock integration removed, and takes the same `sensor.<controller>_ip_address` entity ID. It keeps the last address while the stream is down |
+| **IP address** | The controller | The address this integration's event stream connects to, read from its socket rather than looked up. It replaces the IP address sensor the stock integration removed. It keeps the last address while the stream is down |
 
 The module entities read the enclosure buses every 60 seconds, and only while at least one of them is enabled.
 A module online or offline log refreshes them at once.

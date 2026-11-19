@@ -17,13 +17,13 @@ def error_text(err: Exception) -> str:
 
 
 def peer_address(connection: SocketConnection) -> str | None:
-    """Return the address a connection's socket is connected to, or None while it is closed.
+    """Return the address a connection's socket is connected to, or None while it has none.
 
     It is the address actually in use, so it needs no DNS lookup of the configured host.
     """
     # The aiovantage connection keeps its socket private, and exposes only the host as configured
     writer = connection._writer  # noqa: SLF001
-    if writer is None or writer.is_closing():
+    if writer is None:
         return None
 
     peer = writer.get_extra_info("peername")

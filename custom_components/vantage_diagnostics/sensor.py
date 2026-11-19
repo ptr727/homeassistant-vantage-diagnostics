@@ -127,7 +127,7 @@ class VantageControllerHostEntity(VantageDiagnosticsEntity, SensorEntity):  # py
 class VantageControllerIpAddressEntity(VantageDiagnosticsEntity, SensorEntity):  # pyright: ignore[reportIncompatibleVariableOverride]
     """Sensor reporting the address this integration's event stream connects to.
 
-    It replaces the IP address sensor the stock integration removed, and keeps its entity ID.
+    It replaces the IP address sensor the stock integration removed.
     It keeps the last address while the stream is down.
     """
 
