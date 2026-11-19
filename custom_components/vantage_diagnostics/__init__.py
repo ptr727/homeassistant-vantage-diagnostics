@@ -158,7 +158,7 @@ async def async_setup_entry(
             "events will fire"
         )
 
-    # Mark every entity unavailable while the event stream is down
+    # Mark the module entities unavailable while the event stream is down
     def on_connection_changed(event: object) -> None:
         connected = not isinstance(event, Disconnected)
         entry.runtime_data.connected = connected
