@@ -1,0 +1,240 @@
+blueprint:
+  name: Vantage module fault
+  author: ptr727
+  description: >-
+    Notify when a Vantage module faults, such as when its breaker trips, and when it recovers.
+    It also notifies on genuine out-of-range and back-in-range readings,
+    and drops the readings the integration flags as side effects of a module fault.
+    It needs a Vantage Diagnostics release that includes this blueprint, since it reads event fields older releases lack.
+    See https://github.com/ptr727/homeassistant-vantage-diagnostics/blob/main/blueprints/automation/vantage_diagnostics/vantage_module_fault.md
+  domain: automation
+  source_url: https://github.com/ptr727/homeassistant-vantage-diagnostics/blob/main/blueprints/automation/vantage_diagnostics/vantage_module_fault.yaml
+  homeassistant:
+    min_version: 2026.10.0
+  input:
+    watch:
+      name: What to watch
+      icon: mdi:chip
+      input:
+        modules:
+          name: Modules
+          description: The modules to watch. Leave it empty to watch every module.
+          default: []
+          selector:
+            device:
+              multiple: true
+              filter:
+                - integration: vantage
+              entity:
+                - integration: vantage_diagnostics
+                  domain: sensor
+                  device_class: timestamp
+        tasks:
+          name: Tasks
+          description: >-
+            Only notify on range triggers that start one of these tasks, named as in Design Center.
+            Leave it empty for every task.
+            Use it when some of the program's range triggers start tasks you don't want notified.
+          default: []
+          selector:
+            text:
+              multiple: true
+    signals:
+      name: What notifies
+      icon: mdi:bell-outline
+      input:
+        notify_fault:
+          name: Module fault
+          description: Notify when a module faults, such as when it loses a line feed or drops off its bus.
+          default: true
+          selector:
+            boolean: {}
+        notify_recovered:
+          name: Module recovered
+          description: Notify when a faulted module comes back on its bus.
+          default: true
+          selector:
+            boolean: {}
+        notify_out_of_range:
+          name: Out of range
+          description: Notify when a monitored sensor reads out of range.
+          default: true
+          selector:
+            boolean: {}
+        notify_in_range:
+          name: Back in range
+          description: Notify when a monitored sensor reads back in range.
+          default: true
+          selector:
+            boolean: {}
+        notify_side_effects:
+          name: Trip side effects
+          description: >-
+            Also notify on the range triggers a module fault causes, which the integration flags as side effects.
+            Off, a trip that drops the module off its bus sends no notification per monitored sensor.
+            That needs a module sensor that reads the bus enabled, such as Connectivity.
+            The logbook shows them either way.
+          default: false
+          selector:
+            boolean: {}
+    fallback:
+      name: Stock fallback
+      icon: mdi:lifebuoy
+      collapsed: true
+      input:
+        fallback_sensors:
+          name: Line power sensors
+          description: >-
+            Also notify when one of these stock line power sensors reads below 0 for 2 minutes, which it does while its module has no power.
+            It needs only the stock Vantage integration, so it still catches a trip when Vantage Diagnostics has failed to set up.
+            It stays quiet when the module's Last fault sensor shows a fault in the last 5 minutes and that fault notifies.
+            The stock sensors start disabled, so enable them first.
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+                - integration: vantage
+                  domain: sensor
+                  device_class: power
+    run:
+      name: Actions
+      icon: mdi:play-outline
+      input:
+        actions:
+          name: Actions
+          description: >-
+            What to run, such as a notification.
+            The variables title and message hold a ready-made notification.
+            The variable kind is fault, recovered, out_of_range, in_range, fallback, or test for a manual run, and report holds the event's data.
+          default: []
+          selector:
+            action: {}
+
+mode: queued
+max: 100
+max_exceeded: warning
+
+triggers:
+  - trigger: event
+    event_type: vantage_module_fault
+    id: fault
+  - trigger: event
+    event_type: vantage_module_recovered
+    id: recovered
+  - trigger: event
+    event_type: vantage_trigger
+    event_data:
+      trigger_type: out_of_range
+    id: out_of_range
+  - trigger: event
+    event_type: vantage_trigger
+    event_data:
+      trigger_type: in_range
+    id: in_range
+  - trigger: numeric_state
+    entity_id: !input fallback_sensors
+    below: 0
+    # Longer than the integration takes to report a bus drop that only its poll sees
+    for:
+      minutes: 2
+    id: fallback
+
+variables:
+  modules: !input modules
+  tasks: !input tasks
+  notify_fault: !input notify_fault
+  notify_recovered: !input notify_recovered
+  notify_out_of_range: !input notify_out_of_range
+  notify_in_range: !input notify_in_range
+  notify_side_effects: !input notify_side_effects
+  # A manual run, such as Run actions in the editor, has no trigger id, and sends a test notification
+  kind: "{{ trigger.get('id') or 'test' }}"
+  report: "{{ trigger.event.data if kind not in ['fallback', 'test'] else {} }}"
+  # The stock integration identifies a module's device by the module's VID
+  module_ids: >-
+    {% set ns = namespace(ids=[]) %}
+    {% for device in modules %}
+      {% for identifier in device_attr(device, 'identifiers') or [] %}
+        {% if identifier[0] == 'vantage' %}
+          {% set ns.ids = ns.ids + [identifier[1] | int] %}
+        {% endif %}
+      {% endfor %}
+    {% endfor %}
+    {{ ns.ids }}
+  module_watched: >-
+    {% if kind == 'fallback' %}
+      {{ modules | count == 0 or device_id(trigger.entity_id) in modules }}
+    {% else %}
+      {{ module_ids | count == 0 or report.get('module_id') in module_ids }}
+    {% endif %}
+  # A task name typed as a string in YAML would otherwise match as a substring, silently dropping other tasks
+  task_watched: >-
+    {% set names = [tasks] if tasks is string else tasks %}
+    {{ names | count == 0 or report.get('task_name') in names }}
+  # A module fault already sets the module's Last fault sensor, so the fallback stays quiet when that fault notifies
+  fault_recent: >-
+    {% set ns = namespace(recent=false) %}
+    {% if kind == 'fallback' %}
+      {% set device = device_id(trigger.entity_id) %}
+      {% for entity in integration_entities('vantage_diagnostics') %}
+        {% if device_id(entity) == device and state_attr(entity, 'device_class') == 'timestamp' %}
+          {% set time = states(entity) | as_datetime(none) %}
+          {% if time is not none and now() - time < timedelta(minutes=5) %}
+            {% set ns.recent = true %}
+          {% endif %}
+        {% endif %}
+      {% endfor %}
+    {% endif %}
+    {{ ns.recent }}
+  notify: >-
+    {% if kind == 'fault' %}
+      {{ notify_fault and module_watched }}
+    {% elif kind == 'recovered' %}
+      {{ notify_recovered and module_watched }}
+    {% elif kind in ['out_of_range', 'in_range'] %}
+      {{ (notify_out_of_range if kind == 'out_of_range' else notify_in_range)
+        and module_watched and task_watched
+        and (notify_side_effects or not report.side_effect) }}
+    {% elif kind == 'fallback' %}
+      {{ not (fault_recent and notify_fault and module_watched) }}
+    {% else %}
+      true
+    {% endif %}
+  title: >-
+    {% if kind == 'fault' %}Vantage module fault
+    {% elif kind == 'recovered' %}Vantage module recovered
+    {% elif kind == 'out_of_range' %}Vantage sensor out of range
+    {% elif kind == 'in_range' %}Vantage sensor back in range
+    {% elif kind == 'fallback' %}Vantage line power lost
+    {% else %}Vantage module fault test{% endif %}
+  message: >-
+    {% macro level(load) %}{{ 'unknown' if load.level is none else 'off' if load.level == 0 else (load.level | round | int) ~ '%' }}{% endmacro %}
+    {% macro duration(seconds) %}{% set s = seconds | float(0) | round | int %}{{ '%d min %d s' % (s // 60, s % 60) if s >= 60 else '%d s' % s }}{% endmacro %}
+    {% if kind == 'fault' %}
+      {% set at = (report.time | as_datetime | as_local).strftime('%H:%M') %}
+      {% if report.line_feed_name %}
+        {% set lost = report.loads | selectattr('on_missing_line') | list %}
+        {{ report.module_name }} lost {{ report.line_feed_name }} at {{ at }}.
+        {%- if lost %} Loads on it: {% for load in lost %}{{ load.name }} ({{ level(load) }}){{ ', ' if not loop.last else '.' }}{% endfor %}{% endif %}
+      {% elif report.signal == 'offline' %}
+        {{ report.module_name }} dropped off its bus at {{ at }}.
+      {% else %}
+        {{ report.module_name }} raised a fault at {{ at }}.
+      {% endif %}
+    {% elif kind == 'recovered' %}
+      {{ report.module_name }} is back on its bus after {{ duration(report.outage) }}.
+    {% elif kind in ['out_of_range', 'in_range'] %}
+      {{ report.source_path[:2] | join(' on ') }} is {{ 'out of range' if kind == 'out_of_range' else 'back in range' }}
+      {%- if report.side_effect %}, a side effect of a module fault{% endif %}.
+    {% elif kind == 'fallback' %}
+      {{ state_attr(trigger.entity_id, 'friendly_name') or trigger.entity_id }} reads no power, so its module may have lost power.
+    {% else %}
+      A test of the Vantage module fault automation.
+    {% endif %}
+
+conditions:
+  - condition: template
+    value_template: "{{ notify }}"
+
+actions: !input actions

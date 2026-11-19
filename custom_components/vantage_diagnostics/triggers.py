@@ -89,8 +89,11 @@ def async_setup_triggers(
 
         # A module's sensors read out of range when it loses power, and back in range when it regains it
         if trigger_type in (TriggerType.OUT_OF_RANGE, TriggerType.IN_RANGE):
+            parent = (await names.info(trigger.source)).parent
+            # Lets an automation watching some modules drop the other modules' sensors
+            payload["module_id"] = fault_tracker.async_module_id(parent)
             payload["side_effect"] = fault_tracker.async_classify(
-                (await names.info(trigger.source)).parent,
+                parent,
                 payload,
                 out_of_range=trigger_type is TriggerType.OUT_OF_RANGE,
             )

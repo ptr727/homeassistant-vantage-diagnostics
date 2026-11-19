@@ -18,7 +18,7 @@ from custom_components.vantage_diagnostics.const import (
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_SSL, CONF_USERNAME
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 
 HOST = "192.0.2.10"
 PEER = "192.0.2.20"
@@ -276,6 +276,17 @@ def add_vantage_entry(
             name=obj.name,
         )
     return entry
+
+
+def last_fault_id(hass: HomeAssistant) -> str:
+    """Return the entity ID of the module's last fault sensor."""
+    entity_id = er.async_get(hass).async_get_entity_id(
+        "sensor",
+        DOMAIN,
+        f"{next(iter(hass.config_entries.async_entries('vantage'))).entry_id}:{MODULE_VID}:last_fault",
+    )
+    assert entity_id
+    return entity_id
 
 
 @pytest.fixture

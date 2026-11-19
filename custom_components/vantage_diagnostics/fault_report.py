@@ -246,6 +246,11 @@ class FaultTracker:
 
         return side_effect
 
+    @callback
+    def async_module_id(self, vid: int | None) -> int | None:
+        """Return an object's VID if it is a module, so a range trigger can name its sensor's module."""
+        return vid if vid is not None and self._module(vid) is not None else None
+
     def _side_effects_of(
         self, vid: int, now: dt.datetime, out_of_range: bool
     ) -> list[dict[str, Any]] | None:

@@ -42,7 +42,6 @@ from custom_components.vantage_diagnostics.module_status import ModuleStatus
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import EVENT_HOMEASSISTANT_FINAL_WRITE
 from homeassistant.core import Event, HomeAssistant
-from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 
 from .conftest import (
@@ -54,6 +53,7 @@ from .conftest import (
     FakeClient,
     FakeController,
     FakeEventStream,
+    last_fault_id,
 )
 
 ALERT_TASK_VID = 140
@@ -184,17 +184,6 @@ async def bus_return(
     """Bring the module back on its bus."""
     modules_read.return_value = [MODULE_INFO]
     await emit(hass, stream, MODULE_ONLINE_LOG)
-
-
-def last_fault_id(hass: HomeAssistant) -> str:
-    """Return the entity ID of the module's last fault sensor."""
-    entity_id = er.async_get(hass).async_get_entity_id(
-        "sensor",
-        DOMAIN,
-        f"{next(iter(hass.config_entries.async_entries('vantage'))).entry_id}:{MODULE_VID}:last_fault",
-    )
-    assert entity_id
-    return entity_id
 
 
 async def fault_reports(hass: HomeAssistant, **data: Any) -> list[dict[str, Any]]:
@@ -521,6 +510,17 @@ async def test_genuine_out_of_range(
     assert [data.get("side_effect") for data in trigger_data(triggers, BUTTON_VID)] == [
         False,
         None,
+    ]
+    # A range trigger names its sensor's module, null for a sensor on none, and no other trigger has the field
+    assert [data["module_id"] for data in trigger_data(triggers, POWER_B_VID)] == [
+        MODULE_VID,
+        MODULE_VID,
+    ]
+    assert [
+        data.get("module_id", 0) for data in trigger_data(triggers, BUTTON_VID)
+    ] == [
+        None,
+        0,
     ]
     assert faults == []
 
