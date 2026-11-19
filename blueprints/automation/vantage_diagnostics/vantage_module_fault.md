@@ -80,8 +80,8 @@ The actions run with these variables, so a notification can use them as they are
 | --- | --- |
 | `title` | A ready-made notification title, such as `Vantage module fault` |
 | `message` | A ready-made notification message, as in the examples above |
-| `kind` | `fault`, `recovered`, `out_of_range`, `in_range` or `fallback` |
-| `report` | The event's data: the fault report, the recovery, or the trigger. Empty for `fallback` |
+| `kind` | `fault`, `recovered`, `out_of_range`, `in_range`, `fallback`, or `test` for a manual run |
+| `report` | The event's data: the fault report, the recovery, or the trigger. Empty for `fallback` and `test` |
 
 The fields of `report` are described under [Events][readme-events] in the README.
 For example, this action sends a phone notification.
@@ -94,6 +94,8 @@ For example, this action sends a phone notification.
 ```
 
 The automation runs in queued mode, so notifications that arrive together each run in turn.
+Running the automation by hand, such as with **Run actions** in the editor, sends a test notification.
+Its title is `Vantage module fault test`, so it shows whether the actions work.
 
 ## Stock Fallback
 

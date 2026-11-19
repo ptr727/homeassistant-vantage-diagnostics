@@ -321,6 +321,28 @@ async def test_stock_fallback(
 
 
 @pytest.mark.usefixtures("blueprint_dir")
+async def test_manual_run(hass: HomeAssistant) -> None:
+    """Test that running the automation by hand sends a test notification."""
+    notified = await setup_blueprint(hass)
+
+    await hass.services.async_call(
+        AUTOMATION_DOMAIN,
+        "trigger",
+        {"entity_id": "automation.vantage_module_fault", "skip_condition": False},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+
+    assert [event.data for event in notified] == [
+        {
+            "kind": "test",
+            "title": "Vantage module fault test",
+            "message": "A test of the Vantage module fault automation.",
+        }
+    ]
+
+
+@pytest.mark.usefixtures("blueprint_dir")
 async def test_default_inputs(hass: HomeAssistant) -> None:
     """Test that the blueprint sets up with no inputs at all, and runs no action then."""
     assert await async_setup_component(

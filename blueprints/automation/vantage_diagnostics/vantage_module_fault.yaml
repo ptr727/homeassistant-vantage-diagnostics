@@ -105,7 +105,7 @@ blueprint:
           description: >-
             What to run, such as a notification.
             The variables title and message hold a ready-made notification.
-            The variable kind is fault, recovered, out_of_range, in_range or fallback, and report holds the event's data.
+            The variable kind is fault, recovered, out_of_range, in_range, fallback, or test for a manual run, and report holds the event's data.
           default: []
           selector:
             action: {}
@@ -147,8 +147,9 @@ variables:
   notify_out_of_range: !input notify_out_of_range
   notify_in_range: !input notify_in_range
   notify_side_effects: !input notify_side_effects
-  kind: "{{ trigger.id }}"
-  report: "{{ trigger.event.data if kind != 'fallback' else {} }}"
+  # A manual run, such as Run actions in the editor, has no trigger id, and sends a test notification
+  kind: "{{ trigger.get('id') or 'test' }}"
+  report: "{{ trigger.event.data if kind not in ['fallback', 'test'] else {} }}"
   # The stock integration identifies a module's device by the module's VID
   module_id: >-
     {% set ns = namespace(id=report.get('module_id')) %}
@@ -180,7 +181,7 @@ variables:
     {% if kind == 'fallback' %}
       {% set device = device_id(trigger.entity_id) %}
       {% for entity in integration_entities('vantage_diagnostics') %}
-        {% if device and device_id(entity) == device and state_attr(entity, 'device_class') == 'timestamp' %}
+        {% if device_id(entity) == device and state_attr(entity, 'device_class') == 'timestamp' %}
           {% set time = states(entity) | as_datetime(none) %}
           {% if time is not none and now() - time < timedelta(minutes=5) %}
             {% set ns.recent = true %}
@@ -198,15 +199,18 @@ variables:
       {{ (notify_out_of_range if kind == 'out_of_range' else notify_in_range)
         and module_watched and task_watched
         and (notify_side_effects or not report.side_effect) }}
-    {% else %}
+    {% elif kind == 'fallback' %}
       {{ not (fault_recent and notify_fault and module_watched) }}
+    {% else %}
+      true
     {% endif %}
   title: >-
     {% if kind == 'fault' %}Vantage module fault
     {% elif kind == 'recovered' %}Vantage module recovered
     {% elif kind == 'out_of_range' %}Vantage sensor out of range
     {% elif kind == 'in_range' %}Vantage sensor back in range
-    {% else %}Vantage line power lost{% endif %}
+    {% elif kind == 'fallback' %}Vantage line power lost
+    {% else %}Vantage module fault test{% endif %}
   message: >-
     {% macro level(load) %}{{ 'unknown' if load.level is none else 'off' if load.level == 0 else (load.level | round | int) ~ '%' }}{% endmacro %}
     {% macro duration(seconds) %}{% set s = seconds | float(0) | round | int %}{{ '%d min %d s' % (s // 60, s % 60) if s >= 60 else '%d s' % s }}{% endmacro %}
@@ -225,9 +229,11 @@ variables:
       {{ report.module_name }} is back on its bus after {{ duration(report.outage) }}.
     {% elif kind in ['out_of_range', 'in_range'] %}
       {{ report.source_path[:2] | join(' on ') }} is {{ 'out of range' if kind == 'out_of_range' else 'back in range' }}
-      {%- if report.get('side_effect') %}, a side effect of a module fault{% endif %}.
-    {% else %}
+      {%- if report.side_effect %}, a side effect of a module fault{% endif %}.
+    {% elif kind == 'fallback' %}
       {{ state_attr(trigger.entity_id, 'friendly_name') or trigger.entity_id }} reads no power, so its module may have lost power.
+    {% else %}
+      A test of the Vantage module fault automation.
     {% endif %}
 
 conditions:
