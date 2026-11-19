@@ -63,9 +63,10 @@ Otherwise it reads `Module 2 raised a fault at 06:47.`
 The loads listed are the ones on the missing line feed, with the level the controller last commanded.
 A range trigger from a sensor on no module is watched only while **Modules** is empty.
 
-A trip makes each of the module's monitored sensors read out of range, and then back in range once the breaker is reset.
+A trip that drops the module off its bus makes each of its monitored sensors read out of range.
+They read back in range once the breaker is reset.
 The integration flags each of those triggers with `side_effect: true`.
-With **Trip side effects** off, a trip that drops the module off its bus sends one fault notification and one recovery notification.
+With **Trip side effects** off, such a trip sends one fault notification and one recovery notification.
 It sends no notification per monitored sensor.
 A fault on one line feed that leaves the module on its bus sends no recovery notification, since the module never left its bus.
 When its breaker is reset more than 2 minutes after the fault, its sensors back in range are not flagged, so each one notifies.
