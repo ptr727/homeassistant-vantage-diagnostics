@@ -1,7 +1,7 @@
 """Vantage Diagnostics config entry."""
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from aiovantage import Vantage
 from aiovantage.command_client import EventStream
@@ -13,6 +13,10 @@ from .const import DOMAIN
 from .module_status import ModuleStatusCoordinator
 from .names import ObjectNames
 from .rpc import SharedRpc
+
+# The fault tracker reads the trigger history through a service module, which needs this one
+if TYPE_CHECKING:
+    from .fault_report import FaultTracker
 
 type VantageDiagnosticsConfigEntry = ConfigEntry[VantageDiagnosticsData]
 
@@ -67,6 +71,7 @@ class VantageDiagnosticsData:
     object_names: ObjectNames
     rpc: SharedRpc
     module_status: ModuleStatusCoordinator
+    fault_tracker: FaultTracker
     connected: bool = True
     ip_address: str | None = None
     """The address the event stream's socket connects to, kept while the stream is down."""

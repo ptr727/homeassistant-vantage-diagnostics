@@ -71,6 +71,10 @@ class FakeController:
         """Iterate the objects."""
         return iter(self.objects)
 
+    def get(self, vid: int) -> Any:
+        """Return the object with the VID, or None."""
+        return next((obj for obj in self.objects if obj.vid == vid), None)
+
     def subscribe(self, event_type: type, callback: Callable[[Any], None]) -> MagicMock:
         """Record a subscription."""
         self.subscribers.append((event_type, callback))
@@ -89,6 +93,8 @@ def make_module(vid: int = MODULE_VID, name: str = "Module 1") -> SimpleNamespac
         vid=vid,
         name=name,
         master=1,
+        model="",
+        line_feed_table=[],
         parent=SimpleNamespace(vid=ENCLOSURE_VID, position=1),
     )
 
@@ -106,6 +112,8 @@ class FakeClient:
         self.masters = FakeController(
             [SimpleNamespace(vid=MASTER_VID, name="Controller", number=1)]
         )
+        self.loads = FakeController([])
+        self.omni_sensors = FakeController([])
         self.objects = {
             MODULE_VID: self.modules.objects[0],
             BUTTON_VID: SimpleNamespace(

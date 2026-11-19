@@ -11,3 +11,5 @@ Home Assistant integration adding controller diagnostics to the Vantage InFusion
   - Module connectivity, hardware model, hardware revision, firmware version and bus error sensors, attached to the stock module devices.
   - Event stream, host and IP address sensors on the controller device.
   - The `get_trigger_history`, `get_system_log` and `get_module_status` response-only services.
+  - A module fault report, fired as a `vantage_module_fault` event when a module loses a line feed or drops off its bus. A `vantage_module_recovered` event, a **Last fault** sensor per module and the `get_fault_report` service go with it.
+  - A `side_effect` flag on each out-of-range and back-in-range trigger, telling a trip's side effects from genuine readings.

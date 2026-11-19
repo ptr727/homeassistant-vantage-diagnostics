@@ -22,6 +22,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryError, ConfigEntryNotReady
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.dispatcher import async_dispatcher_send
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.util.ssl import get_default_no_verify_context
 
@@ -34,6 +35,8 @@ from .config_entry import (
 )
 from .const import CONF_VANTAGE_ENTRY_ID, DOMAIN, LOGGER, VANTAGE_DOMAIN
 from .diagnostic_services import async_register_diagnostic_services
+from .fault_report import STORAGE_VERSION, FaultTracker, storage_key
+from .fault_report_service import async_register_fault_report_service
 from .helpers import error_text, peer_address
 from .module_status import ModuleStatusCoordinator
 from .module_status_service import async_register_module_status_service
@@ -56,6 +59,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Register the response-only diagnostic services."""
     async_register_diagnostic_services(hass)
     async_register_module_status_service(hass)
+    async_register_fault_report_service(hass)
 
     return True
 
@@ -111,6 +115,8 @@ async def async_setup_entry(
     entry.async_on_unload(stream.stop)
     module_status = ModuleStatusCoordinator(hass, entry, client, names, rpc)
     entry.async_on_unload(rpc.async_shutdown)
+    fault_tracker = FaultTracker(hass, entry, client, module_status)
+    await fault_tracker.async_load()
     entry.runtime_data = VantageDiagnosticsData(
         client=client,
         stream=stream,
@@ -119,6 +125,7 @@ async def async_setup_entry(
         object_names=names,
         rpc=rpc,
         module_status=module_status,
+        fault_tracker=fault_tracker,
     )
 
     # Reload when the stock entry reloads, since its client is replaced and closed
@@ -147,6 +154,7 @@ async def async_setup_entry(
         ) from err
 
     entry.runtime_data.ip_address = peer_address(connection)
+    fault_tracker.async_start()
 
     # Both are only streamed through the enhanced log
     if connection.supports_enhanced_log:
@@ -195,3 +203,12 @@ async def async_unload_entry(
     # The platforms first, so no sensor listens and nothing polls.
     # The unload callbacks then refuse new requests, stop the coordinator and the stream, and wait for requests already sent.
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+
+
+async def async_remove_entry(
+    hass: HomeAssistant, entry: VantageDiagnosticsConfigEntry
+) -> None:
+    """Remove the fault reports a deleted entry kept, since a new entry never reads them."""
+    await Store[dict[str, Any]](
+        hass, STORAGE_VERSION, storage_key(entry.entry_id)
+    ).async_remove()

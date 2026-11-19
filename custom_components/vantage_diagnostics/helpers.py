@@ -30,6 +30,16 @@ def peer_address(connection: SocketConnection) -> str | None:
     return str(peer[0]) if peer else None
 
 
+def parent_vid(obj: object) -> int | None:
+    """Return the VID of an object's parent, eg. a module's enclosure or a load's module."""
+    return getattr(getattr(obj, "parent", None), "vid", None)
+
+
+def position(obj: object) -> int | None:
+    """Return an object's position under its parent, eg. a load's channel."""
+    return getattr(getattr(obj, "parent", None), "position", None)
+
+
 def enum_name(enum_cls: type[IntEnum], value: int | None) -> str:
     """Return the snake case name of an enum value, eg. "out_of_range".
 

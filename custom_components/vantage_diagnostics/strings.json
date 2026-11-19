@@ -41,12 +41,18 @@
       },
       "ip_address": {
         "name": "IP address"
+      },
+      "last_fault": {
+        "name": "Last fault"
       }
     }
   },
   "exceptions": {
     "connection_failed": {
       "message": "Failed to connect to the controller: {error}"
+    },
+    "get_fault_report_failed": {
+      "message": "Failed to read the fault reports: {errors}"
     },
     "get_module_status_failed": {
       "message": "Failed to read the module status: {errors}"
@@ -74,6 +80,16 @@
     }
   },
   "services": {
+    "get_fault_report": {
+      "name": "Get fault report",
+      "description": "Returns each module's last fault report, as the module fault event carried it, with the trip side effects and the recovery added since.",
+      "fields": {
+        "module_id": {
+          "name": "Module ID",
+          "description": "The VID of the module whose report to return. Leave it out to return every module's report."
+        }
+      }
+    },
     "get_module_status": {
       "name": "Get module status",
       "description": "Lists the modules that respond on each controller's enclosure bus, with their status bytes and error counts."

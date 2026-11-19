@@ -1,7 +1,8 @@
 """Services that read the controller's diagnostics, as InFusion Diagnostics shows them."""
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from functools import partial
+from typing import Any
 
 from aiovantage import Vantage
 from aiovantage.errors import ClientResponseError
@@ -18,7 +19,7 @@ from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 import homeassistant.helpers.config_validation as cv
 from homeassistant.util.json import JsonValueType
 
-from .aiovantage_diag import DiagnosticInterface, SysLogType
+from .aiovantage_diag import DiagnosticInterface, EventLogEntry, SysLogType
 from .config_entry import VantageDiagnosticsConfigEntry
 from .const import DOMAIN, SERVICE_GET_SYSTEM_LOG, SERVICE_GET_TRIGGER_HISTORY, UNLOADED
 from .helpers import enum_name, error_text
@@ -115,15 +116,18 @@ def format_errors(errors: list[ReadError]) -> str:
     return "; ".join(parts)
 
 
-async def _trigger_history(
-    entry: VantageDiagnosticsConfigEntry, call: ServiceCall, errors: list[ReadError]
-) -> list[JsonValueType]:
+async def read_trigger_history(
+    entry: VantageDiagnosticsConfigEntry,
+    select: Callable[[list[EventLogEntry]], Sequence[EventLogEntry]],
+    errors: list[ReadError],
+) -> list[dict[str, Any]]:
+    """Read each master's trigger history, and describe the entries select keeps of each."""
     # Captured once, since HA deletes runtime_data after an unload
     vantage = entry.runtime_data.client
     names = entry.runtime_data.object_names
     rpc = entry.runtime_data.rpc
 
-    entries: list[JsonValueType] = []
+    entries: list[dict[str, Any]] = []
     masters = _masters(vantage)
     for index, master in enumerate(masters):
         # The stock integration, which owns the client, may have unloaded mid-read
@@ -145,7 +149,7 @@ async def _trigger_history(
                 continue
             break
 
-        for item in log[-call.data[ATTR_LIMIT] :]:
+        for item in select(log):
             described = await describe_trigger(
                 names,
                 item.source or 0,
@@ -165,6 +169,15 @@ async def _trigger_history(
             )
 
     return entries
+
+
+async def _trigger_history(
+    entry: VantageDiagnosticsConfigEntry, call: ServiceCall, errors: list[ReadError]
+) -> list[JsonValueType]:
+    limit: int = call.data[ATTR_LIMIT]
+    return list[JsonValueType](
+        await read_trigger_history(entry, lambda log: log[-limit:], errors)
+    )
 
 
 async def _system_log(

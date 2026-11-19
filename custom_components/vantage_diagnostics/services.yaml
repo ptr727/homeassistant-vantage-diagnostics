@@ -19,3 +19,11 @@ get_system_log:
           mode: box
 
 get_module_status:
+
+get_fault_report:
+  fields:
+    module_id:
+      selector:
+        number:
+          min: 1
+          mode: box
