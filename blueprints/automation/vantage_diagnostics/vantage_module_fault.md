@@ -96,8 +96,8 @@ For example, this action sends a phone notification.
     message: "{{ message }}"
 ```
 
-The automation runs in queued mode, so notifications that arrive together each run in turn, up to 100 waiting.
-Past that, Home Assistant logs a warning and drops the run.
+The automation runs in queued mode, so notifications that arrive together each run in turn.
+Once its queue is full, Home Assistant logs a warning and drops the run.
 Running the automation by hand, such as with **Run actions** in the editor, sends a test notification.
 Its title is `Vantage module fault test`, so it shows whether the actions work.
 
@@ -108,6 +108,7 @@ The sensors of a module with no power read `-0.999` in place of a reading.
 The fallback needs only the stock integration, so it still catches a trip when Vantage Diagnostics has failed to set up.
 It stays quiet when the module's **Last fault** sensor shows a fault in the last 5 minutes, and **Module fault** notifies for that module.
 So a trip this integration reports usually notifies once.
+Each listed sensor notifies on its own, so a module that loses every line feed notifies once per listed sensor on it.
 The 2 minutes outlast the time the integration takes to report a bus drop that only its 60 second poll sees.
 A drop that takes longer, such as while the module's enclosure can't be read, can notify twice.
 The stock line power sensors start disabled, so enable the ones to watch first.
