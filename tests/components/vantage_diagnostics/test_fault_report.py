@@ -42,7 +42,6 @@ from custom_components.vantage_diagnostics.module_status import ModuleStatus
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import EVENT_HOMEASSISTANT_FINAL_WRITE
 from homeassistant.core import Event, HomeAssistant
-from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 
 from .conftest import (
@@ -54,6 +53,7 @@ from .conftest import (
     FakeClient,
     FakeController,
     FakeEventStream,
+    last_fault_id,
 )
 
 ALERT_TASK_VID = 140
@@ -184,17 +184,6 @@ async def bus_return(
     """Bring the module back on its bus."""
     modules_read.return_value = [MODULE_INFO]
     await emit(hass, stream, MODULE_ONLINE_LOG)
-
-
-def last_fault_id(hass: HomeAssistant) -> str:
-    """Return the entity ID of the module's last fault sensor."""
-    entity_id = er.async_get(hass).async_get_entity_id(
-        "sensor",
-        DOMAIN,
-        f"{next(iter(hass.config_entries.async_entries('vantage'))).entry_id}:{MODULE_VID}:last_fault",
-    )
-    assert entity_id
-    return entity_id
 
 
 async def fault_reports(hass: HomeAssistant, **data: Any) -> list[dict[str, Any]]:

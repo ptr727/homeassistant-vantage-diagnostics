@@ -27,7 +27,7 @@ from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.setup import async_setup_component
 from homeassistant.util import dt as dt_util
 
-from .conftest import MASTER_VID, MODULE_VID
+from .conftest import MASTER_VID, MODULE_VID, last_fault_id
 
 BLUEPRINT = (
     Path(__file__).parents[3]
@@ -304,13 +304,7 @@ async def test_stock_fallback(
     assert notified[0].data["title"] == "Vantage line power lost"
 
     # This integration reported the fault
-    last_fault = next(
-        entry.entity_id
-        for entry in er.async_entries_for_device(
-            er.async_get(hass), module_device(hass).id
-        )
-        if entry.unique_id.endswith("last_fault")
-    )
+    last_fault = last_fault_id(hass)
     state = hass.states.get(last_fault)
     assert state is not None
     hass.states.async_set(
