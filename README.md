@@ -133,8 +133,10 @@ The other signals of the same fault add nothing, since a trip raises all three w
 A fault lasts until the module is back on its bus.
 One whose module never drops off the bus ends 2 minutes after it started, so a later warning reports again.
 The `module_alert` trigger fires only when the Design Center program assigns a task to the module's Alert event.
-The bus drop needs one of the module's connectivity, hardware, firmware or bus error sensors enabled, since only they read the bus.
+The bus drop needs a connectivity, hardware, firmware or bus error sensor enabled, since only they read the bus.
+Any one of them, on any module, reads every module's enclosure.
 They all start enabled, and the **Last fault** sensor alone reads nothing.
+A hold that ends while the module's enclosure can't be read runs again until a read says whether the module is back.
 
 The event fires once the timeline is read, carrying the report as it stands then.
 A trip's bus drop and side effects often arrive after that, so the event may lack them while the stored report has them.
@@ -151,7 +153,7 @@ The `get_fault_report` service returns the report as it stands now.
 | `temperature` | The module's temperature at the fault, in degrees Celsius, null where the sensor is not reporting |
 | `lines` | Each line feed's number, letter, name, and last `power` and `current` reading, null where the sensor is not reporting |
 | `loads` | Each load on the module, with its VID, name, `channel`, `line_feed` and last `level`. `last_on` and `last_off` are the UTC times it last turned on and off since the entry last loaded. `on_missing_line` marks the loads on the missing line feed |
-| `timeline` | The controller's triggers and the module's load level changes over the 30 minutes before the fault, oldest first. Each row has its UTC `time`, its offset `t` in seconds from the fault, and its `kind`, `trigger` or `load`. At most the 60 rows nearest the fault are kept. Null until the trigger history is read. A restart or reload that cuts that read short leaves it null until the entry loads again, which reads it then and fires the event |
+| `timeline` | The controller's triggers and the module's load level changes over the 30 minutes before the fault, oldest first. Each row has its UTC `time`, its offset `t` in seconds from the fault, and its `kind`, `trigger` or `load`. At most the 60 rows nearest the fault are kept. Null until the trigger history is read. A restart or reload that cancels the read leaves it null until the entry loads again, which reads it then and fires the event. A read that fails instead, as when the stock entry unloads, fires the event with an empty `timeline` and the failures in `timeline_errors` |
 | `timeline_errors` | What could not be read for the timeline, each with its `host`, `master` and `error`. `master` is null for a failure that was not a master's. Empty when the whole history was read, so an empty `timeline` then means a quiet half hour. Null while `timeline` is |
 | `side_effects` | The range triggers attributed to the fault |
 
@@ -239,7 +241,7 @@ The module status service lists every module even when no enclosure could be rea
 
 | Service | Fields | Returns |
 | --- | --- | --- |
-| `vantage_diagnostics.get_trigger_history` | `limit`, entries per master, default 100 | `entries`: the trigger history, newest last, with the `vantage_trigger` fields other than `entity_id`, plus `time` and `master`. Times are the controller's local time |
+| `vantage_diagnostics.get_trigger_history` | `limit`, entries per master, default 100 | `entries`: the trigger history, newest last, with the `vantage_trigger` fields other than `entity_id` and `side_effect`, plus `time` and `master`. Times are the controller's local time |
 | `vantage_diagnostics.get_system_log` | `limit`, entries per master, default 100 | `entries`: the system log, newest last, with `time`, `master`, `type`, `source` and `message` |
 | `vantage_diagnostics.get_module_status` | None | `modules`: each module with `module_id`, `module_name`, `online`, `address`, `model`, `revision`, `version`, `status` and `errors` |
 | `vantage_diagnostics.get_fault_report` | `module_id`, optional | `reports`: the last fault report of the module with that VID, or of every module that has faulted. Each has the fields of [`vantage_module_fault`](#vantage_module_fault) as they stand now |

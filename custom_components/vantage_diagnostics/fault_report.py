@@ -354,11 +354,22 @@ class FaultTracker:
     def _hold_expired(self, vid: int, _now: dt.datetime) -> None:
         # A hold cancelled when the module returned has no timer left to call this
         left, _cancel, snapshot = self._holds.pop(vid)
-        pending = self._pending.pop(vid, [])
-        if (module := self._module(vid)) is None or self._module_status.data.is_online(
-            module
-        ) is not False:
+        if (module := self._module(vid)) is None:
+            self._pending.pop(vid, None)
             return
+
+        # The enclosure's last read failed, so whether the module is back is unknown until a later one
+        if self._module_status.data.is_online(module) is None:
+            self._holds[vid] = (
+                left,
+                async_call_later(
+                    self._hass, OFFLINE_HOLD, partial(self._hold_expired, vid)
+                ),
+                snapshot,
+            )
+            return
+
+        pending = self._pending.pop(vid, [])
 
         self.async_signal(
             vid, SIGNAL_OFFLINE, started=left, side_effects=pending, snapshot=snapshot

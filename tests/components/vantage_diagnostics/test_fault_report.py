@@ -38,6 +38,7 @@ from custom_components.vantage_diagnostics.fault_report import (
     reading,
     storage_key,
 )
+from custom_components.vantage_diagnostics.module_status import ModuleStatus
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import EVENT_HOMEASSISTANT_FINAL_WRITE
 from homeassistant.core import Event, HomeAssistant
@@ -46,6 +47,7 @@ from homeassistant.util import dt as dt_util
 
 from .conftest import (
     BUTTON_VID,
+    ENCLOSURE_VID,
     HOST,
     MODULE_VID,
     TASK_VID,
@@ -936,3 +938,77 @@ async def test_cut_short_report_fires_at_setup(
     assert faults[0].data["time"] == stored["time"]
     assert faults[0].data["timeline"] == []
     assert faults[0].data["timeline_errors"] == []
+
+
+async def test_program_write_past_the_confirming_read(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    fake_stream: type[FakeEventStream],
+    modules_read: AsyncMock,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Test that a module a program write re-announces after the confirming read raises no report, since it is back within the hold."""
+    faults = async_capture_events(hass, EVENT_MODULE_FAULT)
+    module_status = init_integration.runtime_data.module_status
+
+    # Missing from a read and from the confirming read 5 s later, so it is off the bus
+    modules_read.return_value = []
+    await module_status.async_refresh()
+    freezer.tick(timedelta(seconds=6))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert module_status.data.is_online(module_status_module(init_integration)) is False
+
+    # Its online log arrives well within the hold
+    freezer.tick(timedelta(seconds=4))
+    await bus_return(hass, stream_of(fake_stream), modules_read)
+    freezer.tick(timedelta(seconds=OFFLINE_HOLD * 2))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert faults == []
+
+
+async def test_hold_waits_out_an_unreadable_enclosure(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    fake_stream: type[FakeEventStream],
+    modules_read: AsyncMock,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Test that a hold ending while the module's enclosure can't be read runs again, rather than dropping the fault."""
+    faults = async_capture_events(hass, EVENT_MODULE_FAULT)
+    module_status = init_integration.runtime_data.module_status
+    dropped = dt_util.utcnow()
+    await bus_drop(hass, stream_of(fake_stream), modules_read)
+
+    # Another enclosure reads, this one fails, so the module's state is unknown
+    with patch(
+        "custom_components.vantage_diagnostics.module_status.read_module_status",
+        return_value=ModuleStatus(
+            enclosures={ENCLOSURE_VID + 1}, failed={ENCLOSURE_VID: "Timeout"}
+        ),
+    ):
+        freezer.tick(timedelta(seconds=1))
+        await module_status.async_refresh()
+        assert (
+            module_status.data.is_online(module_status_module(init_integration)) is None
+        )
+        freezer.tick(timedelta(seconds=OFFLINE_HOLD))
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done(wait_background_tasks=True)
+    assert faults == []
+
+    # A later read finds it still off the bus, so the next hold starts the fault from the drop
+    await module_status.async_refresh()
+    freezer.tick(timedelta(seconds=OFFLINE_HOLD))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert len(faults) == 1
+    assert faults[0].data["time"] == dropped.isoformat()
+
+
+def module_status_module(entry: MockConfigEntry) -> Any:
+    """Return the module the client holds."""
+    return next(iter(entry.runtime_data.client.modules))
