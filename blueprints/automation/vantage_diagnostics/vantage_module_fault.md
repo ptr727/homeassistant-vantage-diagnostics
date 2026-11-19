@@ -4,6 +4,7 @@ An automation blueprint that notifies when a Vantage module faults, such as when
 It also notifies on genuine out-of-range and back-in-range readings, and drops the readings the integration flags as side effects of a module fault.
 It runs on the events and entities of the [Vantage Diagnostics][readme] integration, which must be set up first.
 It needs a release of the integration that includes this blueprint, since it reads event fields older releases lack.
+[A Tripped Module Breaker](#troubleshooting-example-a-tripped-module-breaker) follows one trip from the controller to the notifications, then through the investigation after it.
 
 ## Import
 
@@ -115,6 +116,71 @@ The 2 minutes outlast the time the integration takes to report a bus drop that o
 A drop that takes longer, such as while the module's enclosure can't be read, can notify twice.
 The stock line power sensors start disabled, so enable the ones to watch first.
 
+## Troubleshooting Example: A Tripped Module Breaker
+
+This example assumes the program is set up as above, with **Trip side effects** off and the other inputs at their defaults.
+
+### What a Trip Reports
+
+A dimmer module such as the SDM-12 is powered from its breaker.
+When that breaker trips, every load on the module goes dark at once.
+The stock integration still shows those loads as on, since a load's state is the level the controller commanded rather than a reading.
+
+A breaker that feeds every line feed of the module produces the sequence below, timed from the moment it trips.
+
+| Time | What happens | Where it shows |
+| --- | --- | --- |
+| 0 s | The controller logs a warning that the module detected a missing line feed | A `vantage_system_log` event with `type: warning`, naming the module in `object_name` |
+| 0 s | The module raises its alert | A `vantage_trigger` event with `trigger_type: module_alert` and the missing line feed in `param1` |
+| 0 s | The integration starts a fault report | The module's **Last fault** sensor updates. The `vantage_module_fault` event follows once the trigger history is read, and the fault notification with it |
+| About 3 s | The module drops off its enclosure bus | A `Module Offline` system log event, and the module's **Connectivity** sensor turns off |
+| 6 s to 36 s | Each range-monitored sensor on the module reads out of range | A `vantage_trigger` event per sensor, with `trigger_type: out_of_range` and `side_effect: true`. None of them notifies |
+| Breaker reset | The module comes back on its bus | A `Module Online` system log event. **Connectivity** turns on, **Bus errors** rises by one, and the recovery notification follows `vantage_module_recovered` |
+| After the reset | Each range-monitored sensor reads back in range | A `vantage_trigger` event per sensor, with `trigger_type: in_range` and `side_effect: true`. None of them notifies |
+
+So the trip sends two notifications, such as these.
+
+```text
+Module 2 lost Line A at 06:47. Loads on it: Kitchen Cans (100%), Pantry (off).
+Module 2 is back on its bus after 3 min 12 s.
+```
+
+That holds while a module sensor that reads the bus is enabled, such as **Connectivity**.
+[What Notifies](#what-notifies) covers the cases that send more.
+One is a breaker reset more than 2 minutes after a fault that left the module on its bus.
+A breaker that feeds only some of the module's line feeds can leave the module on its bus.
+The trip then reads as a fault on one line feed.
+
+While the module has no power, its stock line power and current sensors read `-0.999`.
+That is the marker for a sensor that is not reporting, not a reading.
+The stock module temperature sensor reads the same marker in degrees Celsius.
+In Fahrenheit that shows as about 30.2 °F, which looks like a real temperature.
+The fault report shows such a sensor as null.
+
+### Investigating After the Fact
+
+1. Open the module's device page in Home Assistant.
+1. Read its **Last fault** sensor, which shows when the fault started, the missing line feed and the outage.
+1. Read the history of its **Connectivity** and **Bus errors** sensors, which shows each trip and reset.
+1. Call `vantage_diagnostics.get_fault_report` with no `module_id`, which returns the report of every module that has faulted.
+1. Read the module's report: each line's last reading, each load with its level and when it last changed, and the timeline before the fault.
+1. Call `vantage_diagnostics.get_system_log` with a `limit` that reaches back to the trip, and find the warning and the `Module Offline` and `Module Online` entries.
+1. Call `vantage_diagnostics.get_module_status`, and confirm that every module is back on its bus.
+
+Each service is described under [Services][readme-services] in the README.
+
+### When the Same Module Trips Again
+
+Compare the module's fault reports.
+Each `timeline` shows the triggers and load changes in the 30 minutes before its fault, such as a scene that switched loads off.
+A load that changed level just before several trips is the first to suspect.
+Where each line feed has a breaker of its own, the named line feed says which breaker tripped.
+Then repeated trips on one line feed point at the loads on it.
+Where one breaker feeds every line feed, the named line feed is only the first one the module noticed, so it points at no load.
+
+Writing a program to the controller clears its trigger history.
+So before a write, save a copy with `vantage_diagnostics.get_trigger_history` and a `limit` larger than the history.
+
 <!-- Shields -->
 
 [blueprint-import-shield]: https://my.home-assistant.io/badges/blueprint_import.svg
@@ -123,6 +189,7 @@ The stock line power sensors start disabled, so enable the ones to watch first.
 
 [readme]: ../../../README.md
 [readme-events]: ../../../README.md#events
+[readme-services]: ../../../README.md#services
 
 <!-- External -->
 
