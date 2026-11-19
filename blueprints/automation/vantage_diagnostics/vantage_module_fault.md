@@ -37,7 +37,7 @@ Without the range tasks, no out-of-range or back-in-range reading notifies.
 | Input | Default | What it does |
 | --- | --- | --- |
 | **Modules** | Every module | The modules to watch. The list shows the stock module devices that carry this integration's **Last fault** sensor |
-| **Tasks** | Every task | Notify only on range triggers that start one of these tasks, named as in Design Center. Use it when the program raises range triggers you don't want notified |
+| **Tasks** | Every task | Notify only on range triggers that start one of these tasks, named as in Design Center. Use it when some of the program's range triggers start tasks you don't want notified |
 | **Module fault** | On | Notify when a module faults |
 | **Module recovered** | On | Notify when a faulted module comes back on its bus |
 | **Out of range** | On | Notify when a monitored sensor reads out of range |
@@ -96,7 +96,8 @@ For example, this action sends a phone notification.
     message: "{{ message }}"
 ```
 
-The automation runs in queued mode, so notifications that arrive together each run in turn.
+The automation runs in queued mode, so notifications that arrive together each run in turn, up to 100 waiting.
+Past that, Home Assistant logs a warning and drops the run.
 Running the automation by hand, such as with **Run actions** in the editor, sends a test notification.
 Its title is `Vantage module fault test`, so it shows whether the actions work.
 

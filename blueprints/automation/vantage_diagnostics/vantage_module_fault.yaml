@@ -34,7 +34,7 @@ blueprint:
           description: >-
             Only notify on range triggers that start one of these tasks, named as in Design Center.
             Leave it empty for every task.
-            Use it when the program raises out-of-range or back-in-range triggers from tasks you don't want notified.
+            Use it when some of the program's range triggers start tasks you don't want notified.
           default: []
           selector:
             text:
@@ -112,8 +112,8 @@ blueprint:
             action: {}
 
 mode: queued
-max: 25
-max_exceeded: silent
+max: 100
+max_exceeded: warning
 
 triggers:
   - trigger: event
