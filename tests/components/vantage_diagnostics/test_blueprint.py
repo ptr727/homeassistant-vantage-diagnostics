@@ -27,7 +27,7 @@ from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.setup import async_setup_component
 from homeassistant.util import dt as dt_util
 
-from .conftest import MODULE_VID
+from .conftest import MASTER_VID, MODULE_VID
 
 BLUEPRINT = (
     Path(__file__).parents[3]
@@ -240,11 +240,26 @@ async def test_side_effects_notified(hass: HomeAssistant) -> None:
     ]
 
 
+@pytest.mark.parametrize(
+    ("watch_module", "notify_fault", "notified_after_fault"),
+    [
+        # The fault notified, so the fallback adds nothing
+        (True, True, 1),
+        # The fault did not notify, so the fallback still does
+        (True, False, 2),
+        (False, True, 2),
+    ],
+)
 @pytest.mark.usefixtures("blueprint_dir")
 async def test_stock_fallback(
-    hass: HomeAssistant, freezer: FrozenDateTimeFactory
+    hass: HomeAssistant,
+    freezer: FrozenDateTimeFactory,
+    init_integration: MockConfigEntry,
+    watch_module: bool,
+    notify_fault: bool,
+    notified_after_fault: int,
 ) -> None:
-    """Test that a line power sensor below 0 for a minute notifies, unless the module's last fault is recent."""
+    """Test that a line power sensor below 0 notifies, unless a recent fault of its module notified."""
     vantage_entry = hass.config_entries.async_entries(VANTAGE_DOMAIN)[0]
     er.async_get(hass).async_get_or_create(
         "sensor",
@@ -254,26 +269,41 @@ async def test_stock_fallback(
         config_entry=vantage_entry,
         device_id=module_device(hass).id,
     )
-    hass.states.async_set(POWER_SENSOR, "120.5", {"friendly_name": "Line A Power"})
-    notified = await setup_blueprint(hass, fallback_sensors=[POWER_SENSOR])
+    attributes = {"friendly_name": "Module 1 Power Sensor - Line A"}
+    hass.states.async_set(POWER_SENSOR, "120.5", attributes)
+    watched = stock_device(
+        hass, init_integration, MODULE_VID if watch_module else MASTER_VID
+    )
+    assert watched is not None
+    notified = await setup_blueprint(
+        hass,
+        modules=[watched.id],
+        notify_fault=notify_fault,
+        fallback_sensors=[POWER_SENSOR],
+    )
 
-    async def trip() -> None:
-        hass.states.async_set(POWER_SENSOR, "-0.999", {"friendly_name": "Line A Power"})
+    async def trip(hold: timedelta) -> None:
+        hass.states.async_set(POWER_SENSOR, "-0.999", attributes)
         await hass.async_block_till_done()
-        freezer.tick(timedelta(minutes=1, seconds=1))
+        freezer.tick(hold)
         async_fire_time_changed(hass)
         await hass.async_block_till_done()
-        hass.states.async_set(POWER_SENSOR, "120.5", {"friendly_name": "Line A Power"})
+        hass.states.async_set(POWER_SENSOR, "120.5", attributes)
         await hass.async_block_till_done()
 
-    # The module has never faulted, as this integration failing to set up would leave it
-    await trip()
+    # The module has never faulted, as this integration failing to set up would leave it, and a reading shorter than the hold is ignored
+    await trip(timedelta(minutes=1, seconds=50))
+    assert notified == []
+    await trip(timedelta(minutes=2, seconds=1))
     assert [(event.data["kind"], event.data["message"]) for event in notified] == [
-        ("fallback", "Line A Power reads no power, so its module may have lost power."),
+        (
+            "fallback",
+            "Module 1 Power Sensor - Line A reads no power, so its module may have lost power.",
+        ),
     ]
     assert notified[0].data["title"] == "Vantage line power lost"
 
-    # This integration reported the fault, so the fallback adds nothing
+    # This integration reported the fault
     last_fault = next(
         entry.entity_id
         for entry in er.async_entries_for_device(
@@ -286,8 +316,8 @@ async def test_stock_fallback(
     hass.states.async_set(
         last_fault, dt_util.utcnow().isoformat(), dict(state.attributes)
     )
-    await trip()
-    assert len(notified) == 1
+    await trip(timedelta(minutes=2, seconds=1))
+    assert len(notified) == notified_after_fault
 
 
 @pytest.mark.usefixtures("blueprint_dir")

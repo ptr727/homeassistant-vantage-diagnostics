@@ -56,7 +56,7 @@ The blueprint keys off each trigger's `trigger_type`, never off task names, so i
 | `recovered` | `vantage_module_recovered` | The module is watched | `Module 2 is back on its bus after 3 min 12 s.` |
 | `out_of_range` | `vantage_trigger` | The sensor's module and the task are watched, and the trigger is no side effect | `Power Sensor - Line A on Module 2 is out of range.` |
 | `in_range` | `vantage_trigger` | As for `out_of_range` | `Power Sensor - Line A on Module 2 is back in range.` |
-| `fallback` | A line power sensor's state | The sensor reads below 0 for a minute, and the module has no recent fault | `Line A Power reads no power, so its module may have lost power.` |
+| `fallback` | A line power sensor's state | The sensor reads below 0 for 2 minutes, unless a recent fault of its module notified | `Module 2 Power Sensor - Line A reads no power, so its module may have lost power.` |
 
 A fault with no named line feed reads `Module 2 dropped off its bus at 06:47.` when it started with the bus drop.
 Otherwise it reads `Module 2 raised a fault at 06:47.`
@@ -97,11 +97,13 @@ The automation runs in queued mode, so notifications that arrive together each r
 
 ## Stock Fallback
 
-The stock fallback watches the stock integration's line power sensors and notifies when one reads below 0 for a minute.
-The sensors of a module with no power read `-0.999`, the not-reported marker of `aiovantage`.
+The stock fallback watches the stock integration's line power sensors and notifies when one reads below 0 for 2 minutes.
+The sensors of a module with no power read `-0.999` in place of a reading.
 The fallback needs only the stock integration, so it still catches a trip when Vantage Diagnostics has failed to set up.
-It stays quiet when the module's **Last fault** sensor shows a fault in the last 5 minutes.
-So a trip this integration reports notifies once.
+It stays quiet when the module's **Last fault** sensor shows a fault in the last 5 minutes, and **Module fault** notifies for that module.
+So a trip this integration reports usually notifies once.
+The 2 minutes outlast the time the integration takes to report a bus drop that only its 60 second poll sees.
+A drop that takes longer, such as while the module's enclosure can't be read, can notify twice.
 The stock line power sensors start disabled, so enable the ones to watch first.
 
 <!-- Shields -->

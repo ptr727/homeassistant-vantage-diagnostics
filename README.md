@@ -74,7 +74,8 @@ It adds the following, each described in its own section below:
 - **Events**: `vantage_trigger`, `vantage_system_log`, `vantage_module_fault` and `vantage_module_recovered`, fired on the Home Assistant event bus.
 - **Entities**: diagnostic sensors on the stock integration's module and controller devices.
 - **Services**: four response-only services that read the controller's trigger history, system log and module status, and return each module's last fault report.
-- **Blueprints**: automation blueprints that show common uses of the events and entities, imported by URL.
+
+This repository also holds automation blueprints that use them, described under [Blueprints](#blueprints).
 
 ## Events
 

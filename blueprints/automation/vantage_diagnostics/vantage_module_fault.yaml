@@ -84,9 +84,9 @@ blueprint:
         fallback_sensors:
           name: Line power sensors
           description: >-
-            Also notify when one of these stock line power sensors reads below 0 for a minute, which it does while its module has no power.
+            Also notify when one of these stock line power sensors reads below 0 for 2 minutes, which it does while its module has no power.
             It needs only the stock Vantage integration, so it still catches a trip when Vantage Diagnostics has failed to set up.
-            It stays quiet when the module's Last fault sensor shows a fault in the last 5 minutes.
+            It stays quiet when the module's Last fault sensor shows a fault in the last 5 minutes and that fault notifies.
             The stock sensors start disabled, so enable them first.
           default: []
           selector:
@@ -134,8 +134,9 @@ triggers:
   - trigger: numeric_state
     entity_id: !input fallback_sensors
     below: 0
+    # Longer than the integration takes to report a bus drop that only its poll sees
     for:
-      minutes: 1
+      minutes: 2
     id: fallback
 
 variables:
@@ -149,6 +150,16 @@ variables:
   kind: "{{ trigger.id }}"
   report: "{{ trigger.event.data if kind != 'fallback' else {} }}"
   # The stock integration identifies a module's device by the module's VID
+  module_id: >-
+    {% set ns = namespace(id=report.get('module_id')) %}
+    {% if kind == 'fallback' %}
+      {% for identifier in device_attr(device_id(trigger.entity_id), 'identifiers') or [] %}
+        {% if identifier[0] == 'vantage' %}
+          {% set ns.id = identifier[1] | int(0) %}
+        {% endif %}
+      {% endfor %}
+    {% endif %}
+    {{ ns.id }}
   module_ids: >-
     {% set ns = namespace(ids=[]) %}
     {% for device in ([modules] if modules is string else modules) %}
@@ -159,11 +170,11 @@ variables:
       {% endfor %}
     {% endfor %}
     {{ ns.ids }}
-  module_watched: "{{ module_ids | count == 0 or report.get('module_id') in module_ids }}"
+  module_watched: "{{ module_ids | count == 0 or module_id in module_ids }}"
   task_watched: >-
     {% set names = [tasks] if tasks is string else tasks %}
     {{ names | count == 0 or report.get('task_name') in names }}
-  # A module fault already sets the module's Last fault sensor, so the fallback stays quiet then
+  # A module fault already sets the module's Last fault sensor, so the fallback stays quiet when that fault notifies
   fault_recent: >-
     {% set ns = namespace(recent=false) %}
     {% if kind == 'fallback' %}
@@ -186,9 +197,9 @@ variables:
     {% elif kind in ['out_of_range', 'in_range'] %}
       {{ (notify_out_of_range if kind == 'out_of_range' else notify_in_range)
         and module_watched and task_watched
-        and (notify_side_effects or not report.get('side_effect', false)) }}
+        and (notify_side_effects or not report.side_effect) }}
     {% else %}
-      {{ not fault_recent }}
+      {{ not (fault_recent and notify_fault and module_watched) }}
     {% endif %}
   title: >-
     {% if kind == 'fault' %}Vantage module fault
@@ -202,7 +213,7 @@ variables:
     {% if kind == 'fault' %}
       {% set at = (report.time | as_datetime | as_local).strftime('%H:%M') %}
       {% if report.line_feed_name %}
-        {% set lost = report.loads | default([]) | selectattr('on_missing_line') | list %}
+        {% set lost = report.loads | selectattr('on_missing_line') | list %}
         {{ report.module_name }} lost {{ report.line_feed_name }} at {{ at }}.
         {%- if lost %} Loads on it: {% for load in lost %}{{ load.name }} ({{ level(load) }}){{ ', ' if not loop.last else '.' }}{% endfor %}{% endif %}
       {% elif report.signal == 'offline' %}
