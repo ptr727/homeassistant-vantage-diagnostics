@@ -4,7 +4,7 @@ blueprint:
   description: >-
     Notify when a Vantage module faults, such as when its breaker trips, and when it recovers.
     It also notifies on genuine out-of-range and back-in-range readings from the program's range triggers,
-    and drops the readings a trip causes.
+    and drops the readings the integration flags as side effects of a module fault.
     It needs the Vantage Diagnostics integration.
     See https://github.com/ptr727/homeassistant-vantage-diagnostics/blob/main/blueprints/automation/vantage_diagnostics/vantage_module_fault.md
   domain: automation
@@ -213,7 +213,7 @@ variables:
     {% elif kind == 'recovered' %}
       {{ report.module_name }} is back on its bus after {{ duration(report.outage) }}.
     {% elif kind in ['out_of_range', 'in_range'] %}
-      {{ report.source_path | join(' on ') }} is {{ 'out of range' if kind == 'out_of_range' else 'back in range' }}
+      {{ report.source_path[:2] | join(' on ') }} is {{ 'out of range' if kind == 'out_of_range' else 'back in range' }}
       {%- if report.get('side_effect') %}, a side effect of a module fault{% endif %}.
     {% else %}
       {{ state_attr(trigger.entity_id, 'friendly_name') or trigger.entity_id }} reads no power, so its module may have lost power.

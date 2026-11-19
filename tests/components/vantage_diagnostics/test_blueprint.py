@@ -14,11 +14,13 @@ from pytest_homeassistant_custom_component.common import (
 )
 
 from custom_components.vantage_diagnostics.const import (
+    DOMAIN,
     EVENT_MODULE_FAULT,
     EVENT_MODULE_RECOVERED,
     EVENT_TRIGGER,
     VANTAGE_DOMAIN,
 )
+from custom_components.vantage_diagnostics.entity import stock_device
 from homeassistant.components.automation.const import DOMAIN as AUTOMATION_DOMAIN
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr, entity_registry as er
@@ -52,10 +54,8 @@ async def blueprint_dir(
 
 def module_device(hass: HomeAssistant) -> dr.DeviceEntry:
     """Return the stock device of the module."""
-    vantage_entry = hass.config_entries.async_entries(VANTAGE_DOMAIN)[0]
-    device = dr.async_get(hass).async_get_device_by_identifier(
-        (VANTAGE_DOMAIN, str(MODULE_VID)), vantage_entry.entry_id
-    )
+    entry = hass.config_entries.async_entries(DOMAIN)[0]
+    device = stock_device(hass, entry, MODULE_VID)
     assert device is not None
     return device
 
@@ -116,7 +116,12 @@ def range_data(trigger_type: str, **fields: Any) -> dict[str, Any]:
     return {
         "trigger_type": trigger_type,
         "source_name": "Power Sensor - Line A",
-        "source_path": ["Power Sensor - Line A", "Module 1"],
+        "source_path": [
+            "Power Sensor - Line A",
+            "Module 1",
+            "Enclosure 1",
+            "Controller 1",
+        ],
         "task_name": "Line A Power",
         "module_id": MODULE_VID,
         "side_effect": False,

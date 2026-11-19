@@ -267,7 +267,7 @@ Each names its source, so **Re-import blueprint** in its menu fetches the latest
 
 | Blueprint | What it does |
 | --- | --- |
-| [Vantage module fault][blueprint-module-fault] | Notifies when a module faults, such as when its breaker trips, and when it recovers. It also notifies on genuine out-of-range and back-in-range readings, and drops the readings a trip causes |
+| [Vantage module fault][blueprint-module-fault] | Notifies when a module faults, such as when its breaker trips, and when it recovers. It also notifies on genuine out-of-range and back-in-range readings, and drops the readings the integration flags as side effects of a module fault |
 
 ## Installation
 
