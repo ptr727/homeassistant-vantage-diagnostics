@@ -120,7 +120,8 @@ A module online or offline entry also updates that module's connectivity sensor 
 
 Every entity has the diagnostic entity category and joins a device the stock integration owns, so it shows on that device's page.
 Every entity starts enabled, since its value rarely changes and the module entities share one bus read.
-The hardware model, hardware revision and firmware version sensors read the same reply as the module fault sensors, so they add no polling.
+The hardware model, hardware revision and firmware version sensors read the same reply as the connectivity and bus error sensors.
+So while a module's connectivity or bus error sensor is enabled, they add no polling.
 The host and IP address sensors never read the bus.
 Re-enabling a disabled entity reloads the entry about 30 seconds later, which reads the bus once more while a module entity is enabled.
 
