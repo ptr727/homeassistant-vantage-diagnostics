@@ -38,6 +38,14 @@ NUMBER = re.compile(r"\d+")
 type Shape = tuple[str, str, tuple[str, ...]]
 
 
+def object_vid(message: str) -> int | None:
+    """Return the VID of the object a log message names, if it names one."""
+    if (match := OBJECT_VID.search(message)) is None:
+        return None
+
+    return int(match.group(1) or match.group(2))
+
+
 def is_notable(log: SystemLogReceived) -> bool:
     """Return whether a system log is worth an event."""
     return log.type in NOTABLE_TYPES or bool(MODULE_LOG.match(log.message))
@@ -91,8 +99,7 @@ def async_setup_system_log(
             "source": log.source,
             "message": log.message,
         }
-        if match := OBJECT_VID.search(log.message):
-            vid = int(match.group(1) or match.group(2))
+        if (vid := object_vid(log.message)) is not None:
             # Still fire the log when its object can't be named
             try:
                 name = await names.name(vid)
@@ -113,20 +120,16 @@ def async_setup_system_log(
         # A module dropped off or rejoined the bus, so apply it to its connectivity now and read the bus.
         # A program write logs each module coming back online in turn, and a read between two of those logs misses the modules still to come.
         if bus_change := MODULE_BUS_CHANGE.match(log.message):
-            vid_match = OBJECT_VID.search(log.message)
             entry.runtime_data.module_status.async_module_logged(
-                int(vid_match.group(1) or vid_match.group(2)) if vid_match else None,
-                bus_change.group(1) == "Online",
+                object_vid(log.message), bus_change.group(1) == "Online"
             )
 
         # The controller names the module and the line feed it lost
         if (missing := MISSING_LINE_FEED.search(log.message)) and (
-            vid_match := OBJECT_VID.search(log.message)
-        ):
+            vid := object_vid(log.message)
+        ) is not None:
             entry.runtime_data.fault_tracker.async_signal(
-                int(vid_match.group(1) or vid_match.group(2)),
-                SIGNAL_SYSTEM_LOG,
-                line_feed=int(missing.group(1)),
+                vid, SIGNAL_SYSTEM_LOG, line_feed=int(missing.group(1))
             )
 
         if is_noise(log, seen, time.monotonic()):

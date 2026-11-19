@@ -805,6 +805,14 @@ async def test_restart_mid_fault(
         (dt_util.utcnow() - tripped).total_seconds(), 1
     )
 
+    # The sensors back in range after the reset are part of the recovery, wherever it was first seen
+    triggers = async_capture_events(hass, EVENT_TRIGGER)
+    freezer.tick(timedelta(seconds=10))
+    await emit(
+        hass, stream_of(fake_stream), trigger_line(POWER_A_VID, TriggerType.IN_RANGE)
+    )
+    assert trigger_data(triggers, POWER_A_VID)[-1]["side_effect"] is True
+
 
 @pytest.mark.usefixtures("init_integration")
 async def test_unload_cancels_the_hold(

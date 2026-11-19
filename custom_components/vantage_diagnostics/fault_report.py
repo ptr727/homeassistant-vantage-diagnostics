@@ -331,6 +331,8 @@ class FaultTracker:
         ):
             return
 
+        # A recovery the first read after setup finds is a change too, so the sensors back in range then are side effects
+        self._changed[vid] = now
         started = self._time(report)
         report["recovered"] = now.isoformat()
         report["outage"] = round((now - started).total_seconds(), 1)
