@@ -119,6 +119,8 @@ The stock line power sensors start disabled, so enable the ones to watch first.
 ## Troubleshooting Example: A Tripped Module Breaker
 
 This example assumes the program is set up as above.
+It also assumes controller firmware with the enhanced log, which the trigger and system log events need, as [Events][readme-events] in the README describes.
+On older firmware only the bus drop starts a fault, so no line feed is named.
 It also assumes an action that sends a notification, such as the one under [Actions and Variables](#actions-and-variables).
 The other inputs keep their defaults, so **Trip side effects** is off.
 
@@ -147,6 +149,8 @@ Module 2 lost Line A at 06:47. Loads on it: Kitchen Cans (100%), Pantry (off).
 Module 2 is back on its bus after 3 min 12 s.
 ```
 
+The fault notification lists the loads on the missing line feed only on an SDM-12.
+That is the one model whose channels the integration maps to line feeds.
 That holds while a module sensor that reads the bus is enabled, such as **Connectivity**.
 [What Notifies](#what-notifies) covers the cases that send more.
 One is a breaker reset more than 2 minutes after a fault that left the module on its bus.
@@ -182,11 +186,12 @@ It reaches back at most 30 minutes and keeps at most the 60 rows nearest the fau
 So a busy program's timeline covers less time, and a missing row is no proof that nothing happened.
 A load that changed level just before several trips is the first to suspect.
 Where each line feed has a breaker of its own, the named line feed says which breaker tripped.
-Then repeated trips on one line feed point at the loads on it.
+Then repeated trips on one line feed point at the loads on it, which the report lists on an SDM-12.
 Where one breaker feeds every line feed, the named line feed is only the first one the module noticed, so it points at no load.
 
 Writing a program to the controller clears its trigger history.
-So before a write, save a copy with `vantage_diagnostics.get_trigger_history` and a `limit` larger than the history.
+So before a write, save a copy with `vantage_diagnostics.get_trigger_history` and `limit` at its maximum of 5000.
+A master that returns fewer than 5000 entries has returned its whole history.
 
 <!-- Shields -->
 
