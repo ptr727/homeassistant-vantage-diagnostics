@@ -124,8 +124,8 @@ The other inputs keep their defaults, so **Trip side effects** is off.
 
 ### What a Trip Reports
 
-A dimmer module such as the SDM-12 is powered from its breaker.
-When that breaker trips, every load on the module goes dark at once.
+A dimmer module such as the SDM-12 takes its power through its line feeds, each wired to a breaker.
+When a breaker that feeds every line feed trips, every load on the module goes dark at once.
 The stock integration still shows those loads as on, since a load's state is the level the controller commanded rather than a reading.
 
 A breaker that feeds every line feed of the module produces the sequence below, timed from the moment it trips.
@@ -164,7 +164,7 @@ So a line that has just lost power may still show its last power there, since it
 
 1. Open the module's device page in Home Assistant.
 1. Read its **Last fault** sensor, which shows when the fault started, the missing line feed and the outage.
-1. Read the history of its **Connectivity** and **Bus errors** sensors, which shows each trip and reset.
+1. Read the history of its **Connectivity** and **Bus errors** sensors, which shows each trip that dropped the module off its bus.
 1. Call `vantage_diagnostics.get_fault_report` with no `module_id`, which returns the report of every module that has faulted.
 1. Read the module's report: each line's reading at the fault, each load's level and when it last turned on and off, and the timeline.
 1. Call `vantage_diagnostics.get_system_log` with a `limit` that reaches back to the trip, and find the warning and the `Module Offline` and `Module Online` entries.
