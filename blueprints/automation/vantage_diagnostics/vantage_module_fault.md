@@ -152,10 +152,12 @@ Module 2 is back on its bus after 3 min 12 s.
 That holds while a module sensor that reads the bus is enabled, such as **Connectivity**.
 [What Notifies](#what-notifies) covers the cases that send more.
 One is a breaker reset more than 2 minutes after a fault that left the module on its bus.
+
+The fault notification lists only the loads on the line feed the fault named, Line A here.
+Every load on the module lost power, since the breaker feeds every line feed.
+The loads are listed only on an SDM-12, the one model whose channels the integration maps to line feeds.
 A breaker that feeds only some of the module's line feeds can leave the module on its bus.
 The trip then reads as a fault on one line feed.
-The fault notification lists the loads on the missing line feed only on an SDM-12.
-That is the one model whose channels the integration maps to line feeds.
 
 While the module has no power, its stock line power and current sensors read `-0.999`.
 That is the marker for a sensor that is not reporting, not a reading.
@@ -191,7 +193,7 @@ Where one breaker feeds every line feed, the named line feed is only the first o
 
 Writing a program to the controller clears its trigger history.
 So before a write, save a copy with `vantage_diagnostics.get_trigger_history` and `limit` at its maximum of 5000.
-A master that returns fewer than 5000 entries has returned its whole history.
+A master that returns fewer than 5000 entries, and is missing from the response's `errors`, has returned its whole history.
 
 <!-- Shields -->
 
