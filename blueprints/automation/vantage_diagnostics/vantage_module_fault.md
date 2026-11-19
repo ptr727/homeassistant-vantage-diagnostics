@@ -3,6 +3,7 @@
 An automation blueprint that notifies when a Vantage module faults, such as when its breaker trips, and when it recovers.
 It also notifies on genuine out-of-range and back-in-range readings, and drops the readings the integration flags as side effects of a module fault.
 It runs on the events and entities of the [Vantage Diagnostics][readme] integration, which must be set up first.
+It needs a release of the integration that includes this blueprint, since it reads event fields older releases lack.
 
 ## Import
 

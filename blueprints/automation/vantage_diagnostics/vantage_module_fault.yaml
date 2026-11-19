@@ -5,7 +5,7 @@ blueprint:
     Notify when a Vantage module faults, such as when its breaker trips, and when it recovers.
     It also notifies on genuine out-of-range and back-in-range readings,
     and drops the readings the integration flags as side effects of a module fault.
-    It needs the Vantage Diagnostics integration.
+    It needs a Vantage Diagnostics release that includes this blueprint, since it reads event fields older releases lack.
     See https://github.com/ptr727/homeassistant-vantage-diagnostics/blob/main/blueprints/automation/vantage_diagnostics/vantage_module_fault.md
   domain: automation
   source_url: https://github.com/ptr727/homeassistant-vantage-diagnostics/blob/main/blueprints/automation/vantage_diagnostics/vantage_module_fault.yaml
@@ -152,27 +152,23 @@ variables:
   kind: "{{ trigger.get('id') or 'test' }}"
   report: "{{ trigger.event.data if kind not in ['fallback', 'test'] else {} }}"
   # The stock integration identifies a module's device by the module's VID
-  module_id: >-
-    {% set ns = namespace(id=report.get('module_id')) %}
-    {% if kind == 'fallback' %}
-      {% for identifier in device_attr(device_id(trigger.entity_id), 'identifiers') or [] %}
-        {% if identifier[0] == 'vantage' %}
-          {% set ns.id = identifier[1] | int(0) %}
-        {% endif %}
-      {% endfor %}
-    {% endif %}
-    {{ ns.id }}
   module_ids: >-
     {% set ns = namespace(ids=[]) %}
-    {% for device in ([modules] if modules is string else modules) %}
+    {% for device in modules %}
       {% for identifier in device_attr(device, 'identifiers') or [] %}
-        {% if identifier[0] == 'vantage' and identifier[1] | int(0) > 0 %}
+        {% if identifier[0] == 'vantage' %}
           {% set ns.ids = ns.ids + [identifier[1] | int] %}
         {% endif %}
       {% endfor %}
     {% endfor %}
     {{ ns.ids }}
-  module_watched: "{{ module_ids | count == 0 or module_id in module_ids }}"
+  module_watched: >-
+    {% if kind == 'fallback' %}
+      {{ modules | count == 0 or device_id(trigger.entity_id) in modules }}
+    {% else %}
+      {{ module_ids | count == 0 or report.get('module_id') in module_ids }}
+    {% endif %}
+  # A task name typed as a string in YAML would otherwise match as a substring, silently dropping other tasks
   task_watched: >-
     {% set names = [tasks] if tasks is string else tasks %}
     {{ names | count == 0 or report.get('task_name') in names }}
